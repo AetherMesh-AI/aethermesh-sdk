@@ -4,6 +4,15 @@ AetherMesh Core is an early local-first prototype for a decentralized AI mesh. I
 
 The long-term architecture direction is **AER: Adaptive Expert Routing**, where work is routed across expert services, validators, aggregators, and supporting nodes. This repository is not that full distributed network yet. It is the small, testable foundation that proves the node/work/validation loop before public networking, production peer discovery, or economics are added.
 
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/AetherMesh-AI/aethermesh-core?style=flat-square&label=Code%20Size)
+
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues-raw/AetherMesh-AI/aethermesh-core?style=flat-square&label=Open%20Issues)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues-closed-raw/AetherMesh-AI/aethermesh-core?style=flat-square&label=Closed%20Issues&color=%2350C878)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues-pr-raw/AetherMesh-AI/aethermesh-core?style=flat-square&label=Open%20Pull%20Requests)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues-pr-closed-raw/AetherMesh-AI/aethermesh-core?style=flat-square&label=Closed%20Pull%20Requests&color=%2350C878)
+
+![GitHub number of milestones](https://img.shields.io/github/milestones/open/AetherMesh-AI/aethermesh-core?style=flat-square&label=Active%20Milestones)
+
 ## Current status
 
 This repo currently provides:
