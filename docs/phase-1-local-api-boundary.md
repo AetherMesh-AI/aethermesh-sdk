@@ -2,7 +2,7 @@
 
 Phase 1 exposes a deliberately small, local-only boundary for a runnable prototype. Here, “API” means the supported Python function, localhost route, and CLI contracts plus their local JSON artifacts. It does not promise remote peers or a platform control plane.
 
-The dashboard HTTP app is a separate localhost status surface. Its status/dashboard routes are read-only (except local process shutdown and restart signals). `POST /api/jobs` is the single local work-submission exception; it records a request but does not execute it, issue receipts, or award contribution credit.
+The headless HTTP app is a separate localhost development surface. Its status routes are read-only (except local process shutdown and restart signals). `POST /api/jobs` is the single local work-submission exception; it records a request but does not execute it, issue receipts, or award contribution credit.
 
 ## Scope and locality
 

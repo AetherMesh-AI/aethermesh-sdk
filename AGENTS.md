@@ -1,6 +1,13 @@
-# AetherMesh Core Agent Notes
+# AetherMesh SDK Agent Notes
+
+The repository owns a headless SDK for apps connecting to a future AetherMesh
+network. Read `docs/sdk-scope.md` before choosing work. Keep protocol and local
+node foundations; do not add desktop UI, app agent orchestration, OS installers,
+model trainers, or a full build scheduler. Public P2P is not implemented.
 
 This repository keeps a Graphify knowledge graph under `graphify-out/`.
+Its checked-in snapshot predates the SDK cleanup and is historical navigation,
+not a current inventory or scope specification. Verify its claims against code.
 
 When answering architecture questions, planning the next implementation step, or making non-trivial code changes:
 

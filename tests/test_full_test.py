@@ -57,7 +57,6 @@ class FullTestRunnerTests(unittest.TestCase):
                 ("ruff", "format", "--check", "src", "tests", "scripts"),
             ),
             ("mypy", ("mypy", "--strict", "src", "scripts")),
-            ("desktop tests", ("npm", "run", "test:desktop")),
             (
                 "test integrity",
                 (python, "scripts/ci_quality_gates.py", "test-integrity"),
@@ -220,9 +219,7 @@ class FullTestRunnerTests(unittest.TestCase):
             checks["branch coverage"].env["PYTEST_ADDOPTS"],
         )
         self.assertIn("COVERAGE_FILE", checks["branch coverage"].env)
-        self.assertTrue(
-            checks["desktop tests"].resources & checks["duplicate code"].resources
-        )
+        self.assertNotIn("desktop tests", checks)
         self.assertTrue(
             checks["ruff check"].resources & checks["ruff format"].resources
         )

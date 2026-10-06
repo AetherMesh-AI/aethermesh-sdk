@@ -52,7 +52,7 @@ body:
         - contribution ledger
         - message transport/inbox
         - routing/AER
-        - desktop launcher
+        - SDK packaging or developer CLI
         - packaging/release
         - CI/quality gates
         - docs

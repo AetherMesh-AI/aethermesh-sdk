@@ -330,7 +330,14 @@ def command_install_smoke(args: argparse.Namespace) -> int:
             return install.returncode
         smoke = run([str(cli), "--help"])
         print(smoke.stdout, end="")
-        return smoke.returncode
+        if smoke.returncode != 0:
+            return smoke.returncode
+        example = run(
+            [str(python), "-I", str(ROOT / "examples" / "sdk_smoke.py")],
+            cwd=environment,
+        )
+        print(example.stdout, end="")
+        return example.returncode
 
 
 def command_flaky_tests(_: argparse.Namespace) -> int:

@@ -1,13 +1,9 @@
-"""First-class AetherMesh CLI for local node, API, and UI workflows."""
+"""AetherMesh CLI for headless local node and API diagnostics."""
 
 from __future__ import annotations
 
 import http.client
 import json
-import os
-import subprocess  # nosec B404
-import threading
-import webbrowser
 from contextlib import closing
 from typing import Annotated
 
@@ -101,28 +97,21 @@ def node_start(
     if dry_run:
         console.print(f"Would start AetherMesh local API on http://{host}:{port}")
         return
-    if _background_mode_enabled():
-        _control_background_node("start")
-        console.print("Started AetherMesh background node.")
-        return
     if _local_api_is_aethermesh(host=host, port=port):
         console.print(
             f"AetherMesh local API is already running on http://{host}:{port}"
         )
         return
-    _serve(host=host, port=port, open_browser=False)
+    _serve(host=host, port=port)
 
 
 @node_app.command("stop")
 def node_stop() -> None:
-    """Stop the local node runtime."""
+    """Clear the local runtime marker; use Ctrl+C to stop a foreground server."""
 
-    if _background_mode_enabled():
-        _control_background_node("stop")
-        console.print("Stopped AetherMesh background node.")
-        return
     NodeRuntimeService.default().mark_runtime_stopped()
     console.print("Marked foreground AetherMesh node stopped.")
+    console.print("Use Ctrl+C in the server terminal to stop a running foreground API.")
 
 
 @app.command()
@@ -188,77 +177,6 @@ def update(
         console.print("Dry run complete; wheel verified but not installed.")
 
 
-@app.command()
-def ui(
-    host: Annotated[str, typer.Option(help="API/UI bind host.")] = DEFAULT_API_HOST,
-    port: Annotated[int, typer.Option(help="API/UI bind port.")] = DEFAULT_API_PORT,
-    no_open: Annotated[
-        bool, typer.Option(help="Do not open a browser automatically.")
-    ] = False,
-    dry_run: Annotated[
-        bool, typer.Option(help="Print the dashboard URL without starting the server.")
-    ] = False,
-) -> None:
-    """Open the local dashboard UI backed by the runtime-owned local API.
-
-    The UI is a presentation client only: it reuses an already-running local
-    node API when one is available and otherwise starts the same runtime API
-    used by ``aethermesh node start``. Runtime identity, manifests, validation
-    receipts, lineage, and contribution artifacts stay owned by the node layer.
-    """
-
-    url = f"http://{host}:{port}"
-    if dry_run:
-        console.print(url)
-        return
-    if _local_api_is_aethermesh(host=host, port=port):
-        console.print(f"Using already-running AetherMesh local API at {url}")
-        if not no_open:
-            webbrowser.open(url)
-        return
-    _serve(host=host, port=port, open_browser=not no_open)
-
-
-def _background_mode_enabled() -> bool:
-    service = NodeRuntimeService.default()
-    settings_path = service.paths.home / "config" / "desktop-settings.json"
-    try:
-        with settings_path.open("r", encoding="utf-8") as handle:
-            settings = json.load(handle)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return False
-    return bool(settings.get("backgroundNodeEnabled"))
-
-
-def _control_background_node(action: str) -> None:
-    if action not in {"start", "stop"}:
-        raise RuntimeServiceError(f"unsupported background action: {action}")
-    if os.name == "nt":
-        command = [
-            "schtasks.exe",
-            "/Run" if action == "start" else "/End",
-            "/TN",
-            "AetherMesh Node",
-        ]
-    elif sys_platform() == "darwin":
-        uid = os.getuid()
-        label = "dev.aethermesh.node"
-        command = (
-            ["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"]
-            if action == "start"
-            else ["launchctl", "kill", "TERM", f"gui/{uid}/{label}"]
-        )
-    else:
-        command = ["systemctl", "--user", action, "aethermesh-node.service"]
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)  # nosec B603
-    except subprocess.CalledProcessError as exc:
-        detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-        raise typer.BadParameter(
-            f"could not {action} background node: {detail}"
-        ) from exc
-
-
 def _local_api_is_aethermesh(*, host: str, port: int) -> bool:
     if host not in {"127.0.0.1", "localhost"}:
         return False
@@ -274,13 +192,7 @@ def _local_api_is_aethermesh(*, host: str, port: int) -> bool:
     )
 
 
-def sys_platform() -> str:
-    import sys
-
-    return sys.platform
-
-
-def _serve(*, host: str, port: int, open_browser: bool) -> None:
+def _serve(*, host: str, port: int) -> None:
     if host not in {"127.0.0.1", "localhost"}:
         console.print(
             "[yellow]Warning:[/yellow] non-localhost API binding is not the safe default."
@@ -291,15 +203,13 @@ def _serve(*, host: str, port: int, open_browser: bool) -> None:
         from aethermesh_core.api import create_app
     except ImportError as exc:
         raise typer.BadParameter(
-            "API/UI dependencies are missing. Install with: python -m pip install -e '.[ui]'"
+            "API dependencies are missing. Install with: python -m pip install -e '.[api]'"
         ) from exc
 
     service = NodeRuntimeService.default()
     service.initialize_local_node_data()
     url = f"http://{host}:{port}"
-    console.print(f"Starting AetherMesh local API/UI on {url}")
-    if open_browser:
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    console.print(f"Starting AetherMesh local API on {url}")
     uvicorn.run(create_app(service), host=host, port=port, log_level="info")
 
 

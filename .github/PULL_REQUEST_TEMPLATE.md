@@ -20,7 +20,7 @@
 <!-- Check all that apply. -->
 
 - [ ] Makes the local prototype more runnable, measurable, validated, or easier to extend.
-- [ ] Preserves the AER / REVA / AEF direction in `docs/persistent-goal.md` and `docs/architecture.md`.
+- [ ] Respects the SDK boundaries and current/planned status in `docs/sdk-scope.md`.
 - [ ] Avoids tokenomics, payout logic, dashboard-first work, or unsupported decentralization claims.
 - [ ] Keeps the change small enough to review safely.
 

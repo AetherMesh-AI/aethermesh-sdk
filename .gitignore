@@ -13,11 +13,6 @@ build/
 dist/
 node_modules/
 npm-debug.log*
-desktop/out/
-desktop/.vite/
-desktop/resources/runtime/
-build/pyinstaller/
-build/pyinstaller-spec/
 *.egg-info/
 # Graphify local cache/host-specific metadata
 graphify-out/cache/

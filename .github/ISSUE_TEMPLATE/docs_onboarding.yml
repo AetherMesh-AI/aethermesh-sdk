@@ -21,7 +21,7 @@ body:
         - persistent goal
         - CLI usage
         - local node setup
-        - desktop launcher
+        - SDK packaging or developer CLI
         - release/update flow
         - contributor/agent notes
         - examples/manifests

@@ -17,7 +17,7 @@ class PyprojectDependencyTests(unittest.TestCase):
             "rich>=15.0.0", pyproject["tool"]["aethermesh"]["dependency_justifications"]
         )
 
-    def test_desktop_sidecar_console_entrypoint_exists(self) -> None:
+    def test_legacy_node_console_entrypoint_remains_compatible(self) -> None:
         pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
         self.assertEqual(
