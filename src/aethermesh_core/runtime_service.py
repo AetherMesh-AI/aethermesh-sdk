@@ -30,17 +30,17 @@ from aethermesh_core.identity import (
     deterministic_machine_node_name,
     load_or_create_identity,
 )
-from aethermesh_core.json_io import atomic_create_json, atomic_write_json
 from aethermesh_core.job_result_schema import (
     JOB_RESULT_SCHEMA_VERSION,
     MAX_INLINE_OUTPUT_PAYLOAD_BYTES,
     validate_job_result_document,
 )
-from aethermesh_core.local_json_helpers import canonical_json_hash
+from aethermesh_core.json_io import atomic_create_json, atomic_write_json
 from aethermesh_core.local_audit_event import (
     LocalAuditEventError,
     append_local_audit_event,
 )
+from aethermesh_core.local_json_helpers import canonical_json_hash
 from aethermesh_core.models import Job, JobResult, NodeIdentity
 from aethermesh_core.result_hash import canonical_result_document_hash
 from aethermesh_core.runner import LocalRunner, run_local_job
@@ -217,7 +217,7 @@ class RuntimePaths:
     events_path: Path
 
     @classmethod
-    def from_home(cls, home: str | Path) -> "RuntimePaths":
+    def from_home(cls, home: str | Path) -> RuntimePaths:
         root = Path(home).expanduser()
         return cls(
             home=root,
@@ -237,11 +237,11 @@ class NodeRuntimeService:
         self.paths = paths
 
     @classmethod
-    def default(cls) -> "NodeRuntimeService":
+    def default(cls) -> NodeRuntimeService:
         return cls.from_home(_default_home())
 
     @classmethod
-    def from_home(cls, home: str | Path) -> "NodeRuntimeService":
+    def from_home(cls, home: str | Path) -> NodeRuntimeService:
         return cls(RuntimePaths.from_home(home))
 
     def load_config(self) -> dict[str, Any]:
@@ -2518,7 +2518,7 @@ class NodeRuntimeService:
                     else False
                 ),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - justification: isolate arbitrary executor failures without persisting their messages.
             result = JobResult(
                 job_id=job_id,
                 node_id=worker_node_id,
@@ -3896,8 +3896,8 @@ def _duration_ms(started_at: str, finished_at: str) -> int:
     format_string = "%Y-%m-%dT%H:%M:%S.%fZ"
     return int(
         (
-            datetime.strptime(finished_at, format_string)
-            - datetime.strptime(started_at, format_string)
+            datetime.strptime(finished_at, format_string).replace(tzinfo=UTC)
+            - datetime.strptime(started_at, format_string).replace(tzinfo=UTC)
         ).total_seconds()
         * 1000
     )
@@ -3938,10 +3938,10 @@ def _is_utc_timestamp(value: object) -> bool:
     if not isinstance(value, str):
         return False
     try:
-        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ")
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
     except ValueError:
         return False
-    return parsed.tzinfo is None
+    return parsed.tzinfo is UTC
 
 
 def _utc_timestamp_to_unix_seconds(value: str) -> int:
@@ -3971,9 +3971,9 @@ def _is_utc_timestamp_before_or_at_timestamp(earlier: object, later: object) -> 
     if not _is_utc_timestamp(earlier) or not _is_utc_timestamp(later):
         return False
     format_string = "%Y-%m-%dT%H:%M:%S.%fZ"
-    return datetime.strptime(cast(str, earlier), format_string) <= datetime.strptime(
-        cast(str, later), format_string
-    )
+    return datetime.strptime(cast(str, earlier), format_string).replace(
+        tzinfo=UTC
+    ) <= datetime.strptime(cast(str, later), format_string).replace(tzinfo=UTC)
 
 
 def _package_version() -> str:

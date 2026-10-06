@@ -379,16 +379,18 @@ class LocalValidationReplayTests(unittest.TestCase):
                 result_path,
                 _message_log([_result("msg-0002", "job-a", "expected", "node-a")]),
             )
-            with mock.patch(
-                "aethermesh_core.local_validation.atomic_write_json",
-                side_effect=OSError("disk full"),
+            with (
+                mock.patch(
+                    "aethermesh_core.local_validation.atomic_write_json",
+                    side_effect=OSError("disk full"),
+                ),
+                self.assertRaisesRegex(LocalValidationError, "could not write"),
             ):
-                with self.assertRaisesRegex(LocalValidationError, "could not write"):
-                    validate_local_results(
-                        assignment_log_path=assignment_path,
-                        result_log_path=result_path,
-                        validation_log_path=validation_path,
-                    )
+                validate_local_results(
+                    assignment_log_path=assignment_path,
+                    result_log_path=result_path,
+                    validation_log_path=validation_path,
+                )
             self.assertFalse(validation_path.exists())
 
     def test_result_without_correlation_can_match_assignment_without_correlation(
@@ -499,12 +501,14 @@ class LocalValidationReplayTests(unittest.TestCase):
                 "job_result_reported",
             ),
         ]:
-            with self.subTest(field=field, message_type=message_type):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(field=field, message_type=message_type),
+                self.assertRaisesRegex(
                     LocalValidationError,
                     f"{message_type} payload field '{field}' must be a non-empty string",
-                ):
-                    _required_non_empty_string(payload, field, message_type)
+                ),
+            ):
+                _required_non_empty_string(payload, field, message_type)
 
 
 def _message_log(messages: list[MeshMessage]) -> dict[str, object]:

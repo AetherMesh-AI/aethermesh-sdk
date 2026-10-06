@@ -11,8 +11,8 @@ from aethermesh_core.ledger import ContributionLedger
 from aethermesh_core.message_bus import LocalMessageBus, send_numbered_message
 from aethermesh_core.messages import MeshMessage
 from aethermesh_core.models import Job, JobResult, NodeIdentity
-from aethermesh_core.node_service import LocalNodeService
 from aethermesh_core.node_registry import NodeRegistry
+from aethermesh_core.node_service import LocalNodeService
 from aethermesh_core.runner import LocalRunner
 from aethermesh_core.scheduler import (
     JobAssignment,
@@ -22,7 +22,6 @@ from aethermesh_core.scheduler import (
 )
 from aethermesh_core.validation import ValidationResult
 from aethermesh_core.version_metadata import capture_version_metadata
-
 
 SimulationJobAssignment = JobAssignment
 

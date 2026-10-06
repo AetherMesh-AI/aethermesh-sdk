@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import os
 import re
-from copy import deepcopy
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator, cast
+from typing import Any, cast
 
 if os.name == "nt":  # pragma: no cover - justification: Windows-only import
     import msvcrt
@@ -160,10 +161,8 @@ def validate_local_contribution_record(
         raise ContributionRecordError(
             "validated_at is required for local validation evidence"
         )
-    contribution_time = datetime.fromisoformat(validated_at.replace("Z", "+00:00"))
-    receipt_time = datetime.fromisoformat(
-        receipt["validated_at"].replace("Z", "+00:00")
-    )
+    contribution_time = datetime.fromisoformat(validated_at)
+    receipt_time = datetime.fromisoformat(receipt["validated_at"])
     if contribution_time != receipt_time:
         raise ContributionRecordError(
             "validation receipt validated_at does not match contribution record"
@@ -401,9 +400,7 @@ def apply_local_validation_receipt(
         "valid" if receipt["validation_status"] == "pass" else "invalid",
         receipt["validator_id"],
         validation_receipt_ref,
-        _utc_timestamp(
-            datetime.fromisoformat(receipt["validated_at"].replace("Z", "+00:00"))
-        ),
+        _utc_timestamp(datetime.fromisoformat(receipt["validated_at"])),
         receipt["rejection_reason"],
     )
     updated["validation"] = {
@@ -428,9 +425,10 @@ def _contribution_journal_lock(journal_path: Path) -> Iterator[None]:
                     lock_handle.write(b"\0")
                     lock_handle.flush()
                 lock_handle.seek(0)
-                getattr(msvcrt, "locking")(
+                # Non-Windows type stubs omit this Windows-only native API.
+                cast(Any, msvcrt).locking(
                     lock_handle.fileno(),
-                    getattr(msvcrt, "LK_LOCK"),
+                    cast(Any, msvcrt).LK_LOCK,
                     1,
                 )
             else:
@@ -442,9 +440,10 @@ def _contribution_journal_lock(journal_path: Path) -> Iterator[None]:
                     os.name == "nt"
                 ):  # pragma: no cover - justification: Windows-only unlock
                     lock_handle.seek(0)
-                    getattr(msvcrt, "locking")(
+                    # Non-Windows type stubs omit this Windows-only native API.
+                    cast(Any, msvcrt).locking(
                         lock_handle.fileno(),
-                        getattr(msvcrt, "LK_UNLCK"),
+                        cast(Any, msvcrt).LK_UNLCK,
                         1,
                     )
                 else:
@@ -587,7 +586,7 @@ def _require_timestamp(document: dict[str, Any], field: str) -> None:
     if not _TIMESTAMP.fullmatch(value):
         raise ContributionRecordError(f"{field} must be an RFC 3339 UTC timestamp")
     try:
-        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise ContributionRecordError(
             f"{field} must be an RFC 3339 UTC timestamp"

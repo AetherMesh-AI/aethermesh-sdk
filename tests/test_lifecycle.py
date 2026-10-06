@@ -179,9 +179,11 @@ class LocalNodeLifecycleTests(unittest.TestCase):
             ),
         )
         for expected_error, next_record in cases:
-            with self.subTest(expected_error=expected_error):
-                with self.assertRaisesRegex(LifecycleTransitionError, expected_error):
-                    validate_transition(running, next_record)
+            with (
+                self.subTest(expected_error=expected_error),
+                self.assertRaisesRegex(LifecycleTransitionError, expected_error),
+            ):
+                validate_transition(running, next_record)
 
     def test_recovery_is_derived_from_persisted_records_and_runtime_marker(
         self,

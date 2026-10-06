@@ -4,7 +4,6 @@ import unittest
 from collections.abc import Callable
 from pathlib import Path
 
-
 from aethermesh_core.cli import run_local_flow
 from aethermesh_core.flow_audit import (
     FlowAuditError,
@@ -514,9 +513,11 @@ class FlowAuditTamperTests(unittest.TestCase):
                 run_local_flow(str(manifest_path), str(output_dir))
                 tamper(output_dir)
                 before = _artifact_contents(output_dir)
-                with self.subTest(match=match):
-                    with self.assertRaisesRegex(FlowAuditError, match):
-                        audit_local_flow(output_dir)
+                with (
+                    self.subTest(match=match),
+                    self.assertRaisesRegex(FlowAuditError, match),
+                ):
+                    audit_local_flow(output_dir)
                 after = _artifact_contents(output_dir)
             self.assertEqual(after, before)
 

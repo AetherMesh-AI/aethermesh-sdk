@@ -11,11 +11,10 @@ from typing import Any, TypeGuard
 from aethermesh_core.models import Job
 from aethermesh_core.scheduler import (
     DEFAULT_LOCAL_CAPABILITIES,
+    SUPPORTED_LOCAL_JOB_TYPES,
     NodeStatus,
     ScheduledNode,
-    SUPPORTED_LOCAL_JOB_TYPES,
 )
-
 
 _LOCAL_JOB_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,127}\Z")
 _CONTENT_ADDRESSED_JOB_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")

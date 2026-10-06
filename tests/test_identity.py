@@ -28,9 +28,10 @@ from aethermesh_core.identity import (
     _linux_gpu_device_id,
     _linux_gpu_model,
     _linux_gpu_vendor,
-    _local_identity_ref_path,
     _linux_memtotal_gb,
     _linux_physical_core_count,
+    _load_identity_reset_receipts,
+    _local_identity_ref_path,
     _max_csv_int,
     _max_gpu_vram_gb,
     _new_local_node_id,
@@ -48,7 +49,6 @@ from aethermesh_core.identity import (
     _safe_int,
     _save_identity,
     _string_list_from_section,
-    _load_identity_reset_receipts,
     _unique_reset_artifact_path,
     _vram_value_to_gb,
     collect_hardware_identity_inputs,
@@ -210,15 +210,16 @@ class IdentityPersistenceTests(unittest.TestCase):
         }
 
         for secret_field in ("privateKey", "secret-key", "seed"):
-            with self.subTest(secret_field=secret_field):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(secret_field=secret_field),
+                self.assertRaisesRegex(
                     IdentityPersistenceError,
                     "must not contain private key material",
-                ):
-                    parse_local_node_identity_document(
-                        base_document
-                        | {"local_metadata": {secret_field: "do-not-copy"}}
-                    )
+                ),
+            ):
+                parse_local_node_identity_document(
+                    base_document | {"local_metadata": {secret_field: "do-not-copy"}}
+                )
 
     def test_public_local_node_identity_rejects_non_integer_version(self) -> None:
         base_document = {
@@ -230,14 +231,16 @@ class IdentityPersistenceTests(unittest.TestCase):
         }
 
         for identity_version in (True, "1", 2):
-            with self.subTest(identity_version=identity_version):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(identity_version=identity_version),
+                self.assertRaisesRegex(
                     IdentityPersistenceError,
                     "identity_version must be integer 1",
-                ):
-                    parse_local_node_identity_document(
-                        base_document | {"identity_version": identity_version}
-                    )
+                ),
+            ):
+                parse_local_node_identity_document(
+                    base_document | {"identity_version": identity_version}
+                )
 
     def test_public_local_node_identity_rejects_nonlocal_manifest_ref(self) -> None:
         base_document = {
@@ -261,14 +264,16 @@ class IdentityPersistenceTests(unittest.TestCase):
         )
 
         for manifest_ref in denied_refs:
-            with self.subTest(manifest_ref=manifest_ref):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(manifest_ref=manifest_ref),
+                self.assertRaisesRegex(
                     IdentityPersistenceError,
                     "manifest_ref must be a local file or fixture reference",
-                ):
-                    parse_local_node_identity_document(
-                        base_document | {"manifest_ref": manifest_ref}
-                    )
+                ),
+            ):
+                parse_local_node_identity_document(
+                    base_document | {"manifest_ref": manifest_ref}
+                )
 
     def test_public_local_node_identity_rejects_secret_manifest_ref(self) -> None:
         base_document = {
@@ -284,14 +289,16 @@ class IdentityPersistenceTests(unittest.TestCase):
             "keys/private-key.json#node:node-local-a",
             "keys/seed.json#node:node-local-a",
         ):
-            with self.subTest(manifest_ref=manifest_ref):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(manifest_ref=manifest_ref),
+                self.assertRaisesRegex(
                     IdentityPersistenceError,
                     "manifest_ref must not reference private key material",
-                ):
-                    parse_local_node_identity_document(
-                        base_document | {"manifest_ref": manifest_ref}
-                    )
+                ),
+            ):
+                parse_local_node_identity_document(
+                    base_document | {"manifest_ref": manifest_ref}
+                )
 
     def test_node_name_wordlists_exist_and_are_valid(self) -> None:
         wordlists = _node_name_wordlists()
@@ -368,14 +375,16 @@ class IdentityPersistenceTests(unittest.TestCase):
                 )
 
     def test_packaged_wordlist_dir_falls_back_to_install_prefix(self) -> None:
-        with patch.object(
-            identity_module, "NODE_NAME_WORDLIST_DIR", Path("/definitely/missing")
+        with (
+            patch.object(
+                identity_module, "NODE_NAME_WORDLIST_DIR", Path("/definitely/missing")
+            ),
+            patch.object(sys, "prefix", "/tmp/aethermesh-prefix"),
         ):
-            with patch.object(sys, "prefix", "/tmp/aethermesh-prefix"):
-                self.assertEqual(
-                    _node_name_wordlist_dir(),
-                    Path("/tmp/aethermesh-prefix") / "wordlists" / "node-names",
-                )
+            self.assertEqual(
+                _node_name_wordlist_dir(),
+                Path("/tmp/aethermesh-prefix") / "wordlists" / "node-names",
+            )
 
     def test_deterministic_node_name_uses_component_hash_words_and_node_tag(
         self,
@@ -1369,14 +1378,12 @@ Ethernet Address: aa:bb:cc:dd:ee:04
             ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:06"],
         )
 
-        linux_ip = "\n".join(
-            [
-                "2: eth0: <BROADCAST> link/ether aa:bb:cc:dd:ee:11 brd ff:ff:ff:ff:ff:ff",
-                "3: wlan0: <BROADCAST> link/ether aa:bb:cc:dd:ee:12 brd ff:ff:ff:ff:ff:ff",
-                "4: docker0: <BROADCAST> link/ether aa:bb:cc:dd:ee:13 brd ff:ff:ff:ff:ff:ff",
-                "5: vethabc@if4: <BROADCAST> link/ether aa:bb:cc:dd:ee:14 brd ff:ff:ff:ff:ff:ff",
-                "6: bridge0: <BROADCAST> link/ether aa:bb:cc:dd:ee:15 brd ff:ff:ff:ff:ff:ff",
-            ]
+        linux_ip = (
+            "2: eth0: <BROADCAST> link/ether aa:bb:cc:dd:ee:11 brd ff:ff:ff:ff:ff:ff\n"
+            "3: wlan0: <BROADCAST> link/ether aa:bb:cc:dd:ee:12 brd ff:ff:ff:ff:ff:ff\n"
+            "4: docker0: <BROADCAST> link/ether aa:bb:cc:dd:ee:13 brd ff:ff:ff:ff:ff:ff\n"
+            "5: vethabc@if4: <BROADCAST> link/ether aa:bb:cc:dd:ee:14 brd ff:ff:ff:ff:ff:ff\n"
+            "6: bridge0: <BROADCAST> link/ether aa:bb:cc:dd:ee:15 brd ff:ff:ff:ff:ff:ff"
         )
         self.assertEqual(
             _physical_mac_addresses(linux_ip, source="linux-ip-link"),
@@ -1622,76 +1629,76 @@ Ethernet Address: aa:bb:cc:dd:ee:04
             ("typed lineage", ("lineage", "lineage_links", "bad"), "lineage_links"),
         ]
         for _case_name, mutation, expected_field in invalid_documents:
-            with self.subTest(expected_field=expected_field):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    root = Path(temp_dir)
-                    identity_path = root / "local-node.json"
-                    artifact_contents = {
-                        root / "manifests" / "local-batch.json": json.dumps(
-                            {"nodes": [{"node_id": "legacy-node-id"}]}
-                        ),
-                        root / "receipts" / "receipt-0001.json": json.dumps(
-                            {"receipts": [{"node_id": "legacy-node-id"}]}
-                        ),
-                        root / "lineage" / "local-node-link.json": json.dumps(
-                            {"node_id": "legacy-node-id"}
-                        ),
-                        root / "contributions" / "contribution-0001.json": json.dumps(
-                            {
-                                "node_id": "legacy-node-id",
-                                "creator_node_id": "original-creator-node",
-                            }
-                        ),
-                    }
-                    for artifact_path, contents in artifact_contents.items():
-                        artifact_path.parent.mkdir(parents=True, exist_ok=True)
-                        artifact_path.write_text(contents, encoding="utf-8")
-                    document = _identity_document(
-                        NodeIdentity(node_id="legacy-node-id"),
-                        created_at="2026-07-08T00:00:00+00:00",
-                        creator_node_id="original-creator-node",
-                    )
-                    document["references"] = {
-                        "manifest_refs": [
-                            "manifests/local-batch.json#node:legacy-node-id"
-                        ],
-                        "validation_receipt_refs": ["receipts/receipt-0001.json"],
-                        "version_metadata": _test_version_metadata(),
-                    }
-                    document["lineage"] = {
-                        "parent_node_ids": ["original-creator-node"],
-                        "lineage_links": ["lineage/local-node-link.json"],
-                    }
-                    document["contribution_attribution"] = {
-                        "creator_node_id": "original-creator-node",
-                        "attribution_node_id": "legacy-node-id",
-                        "contribution_refs": ["contributions/contribution-0001.json"],
-                    }
-                    section_name = mutation[0]
-                    field_name = mutation[1]
-                    section = document[section_name]
-                    assert isinstance(section, dict)
-                    if len(mutation) == 2:
-                        section.pop(field_name)
-                    else:
-                        section[field_name] = mutation[2]
-                    original_identity = json.dumps(document)
-                    identity_path.write_text(original_identity, encoding="utf-8")
+            with (
+                self.subTest(expected_field=expected_field),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                root = Path(temp_dir)
+                identity_path = root / "local-node.json"
+                artifact_contents = {
+                    root / "manifests" / "local-batch.json": json.dumps(
+                        {"nodes": [{"node_id": "legacy-node-id"}]}
+                    ),
+                    root / "receipts" / "receipt-0001.json": json.dumps(
+                        {"receipts": [{"node_id": "legacy-node-id"}]}
+                    ),
+                    root / "lineage" / "local-node-link.json": json.dumps(
+                        {"node_id": "legacy-node-id"}
+                    ),
+                    root / "contributions" / "contribution-0001.json": json.dumps(
+                        {
+                            "node_id": "legacy-node-id",
+                            "creator_node_id": "original-creator-node",
+                        }
+                    ),
+                }
+                for artifact_path, contents in artifact_contents.items():
+                    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                    artifact_path.write_text(contents, encoding="utf-8")
+                document = _identity_document(
+                    NodeIdentity(node_id="legacy-node-id"),
+                    created_at="2026-07-08T00:00:00+00:00",
+                    creator_node_id="original-creator-node",
+                )
+                document["references"] = {
+                    "manifest_refs": ["manifests/local-batch.json#node:legacy-node-id"],
+                    "validation_receipt_refs": ["receipts/receipt-0001.json"],
+                    "version_metadata": _test_version_metadata(),
+                }
+                document["lineage"] = {
+                    "parent_node_ids": ["original-creator-node"],
+                    "lineage_links": ["lineage/local-node-link.json"],
+                }
+                document["contribution_attribution"] = {
+                    "creator_node_id": "original-creator-node",
+                    "attribution_node_id": "legacy-node-id",
+                    "contribution_refs": ["contributions/contribution-0001.json"],
+                }
+                section_name = mutation[0]
+                field_name = mutation[1]
+                section = document[section_name]
+                assert isinstance(section, dict)
+                if len(mutation) == 2:
+                    section.pop(field_name)
+                else:
+                    section[field_name] = mutation[2]
+                original_identity = json.dumps(document)
+                identity_path.write_text(original_identity, encoding="utf-8")
 
-                    with self.assertRaises(IdentityPersistenceError) as context:
-                        load_or_create_identity(identity_path)
+                with self.assertRaises(IdentityPersistenceError) as context:
+                    load_or_create_identity(identity_path)
 
-                    message = str(context.exception)
-                    self.assertIn(f"identity file {identity_path.name}", message)
-                    self.assertNotIn(str(identity_path.parent), message)
-                    self.assertIn(expected_field, message)
+                message = str(context.exception)
+                self.assertIn(f"identity file {identity_path.name}", message)
+                self.assertNotIn(str(identity_path.parent), message)
+                self.assertIn(expected_field, message)
+                self.assertEqual(
+                    identity_path.read_text(encoding="utf-8"), original_identity
+                )
+                for artifact_path, contents in artifact_contents.items():
                     self.assertEqual(
-                        identity_path.read_text(encoding="utf-8"), original_identity
+                        artifact_path.read_text(encoding="utf-8"), contents
                     )
-                    for artifact_path, contents in artifact_contents.items():
-                        self.assertEqual(
-                            artifact_path.read_text(encoding="utf-8"), contents
-                        )
 
     def test_identity_validation_accepts_matching_local_references(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1789,45 +1796,43 @@ Ethernet Address: aa:bb:cc:dd:ee:04
             ),
         ]
         for ref_field, artifact, message in mismatched_documents:
-            with self.subTest(ref_field=ref_field):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    root = Path(temp_dir)
-                    identity_path = root / "local-node.json"
-                    artifact_path = root / "refs" / f"{ref_field}.json"
-                    artifact_path.parent.mkdir()
-                    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
-                    document = _identity_document(
-                        NodeIdentity(node_id="legacy-node-id"),
-                        created_at="2026-07-08T00:00:00+00:00",
-                        creator_node_id="original-creator-node",
-                    )
-                    references = document["references"]
-                    lineage = document["lineage"]
-                    contribution_attribution = document["contribution_attribution"]
-                    assert isinstance(references, dict)
-                    assert isinstance(lineage, dict)
-                    assert isinstance(contribution_attribution, dict)
-                    if ref_field == "manifest_refs":
-                        references["manifest_refs"] = [f"refs/{ref_field}.json"]
-                    elif ref_field == "validation_receipt_refs":
-                        references["validation_receipt_refs"] = [
-                            f"refs/{ref_field}.json"
-                        ]
-                    elif ref_field == "lineage_links":
-                        lineage["lineage_links"] = [f"refs/{ref_field}.json"]
-                    else:
-                        contribution_attribution["contribution_refs"] = [
-                            f"refs/{ref_field}.json"
-                        ]
-                    original = json.dumps(document)
-                    identity_path.write_text(original, encoding="utf-8")
+            with (
+                self.subTest(ref_field=ref_field),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                root = Path(temp_dir)
+                identity_path = root / "local-node.json"
+                artifact_path = root / "refs" / f"{ref_field}.json"
+                artifact_path.parent.mkdir()
+                artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+                document = _identity_document(
+                    NodeIdentity(node_id="legacy-node-id"),
+                    created_at="2026-07-08T00:00:00+00:00",
+                    creator_node_id="original-creator-node",
+                )
+                references = document["references"]
+                lineage = document["lineage"]
+                contribution_attribution = document["contribution_attribution"]
+                assert isinstance(references, dict)
+                assert isinstance(lineage, dict)
+                assert isinstance(contribution_attribution, dict)
+                if ref_field == "manifest_refs":
+                    references["manifest_refs"] = [f"refs/{ref_field}.json"]
+                elif ref_field == "validation_receipt_refs":
+                    references["validation_receipt_refs"] = [f"refs/{ref_field}.json"]
+                elif ref_field == "lineage_links":
+                    lineage["lineage_links"] = [f"refs/{ref_field}.json"]
+                else:
+                    contribution_attribution["contribution_refs"] = [
+                        f"refs/{ref_field}.json"
+                    ]
+                original = json.dumps(document)
+                identity_path.write_text(original, encoding="utf-8")
 
-                    with self.assertRaisesRegex(IdentityPersistenceError, message):
-                        load_or_create_identity(identity_path)
+                with self.assertRaisesRegex(IdentityPersistenceError, message):
+                    load_or_create_identity(identity_path)
 
-                    self.assertEqual(
-                        identity_path.read_text(encoding="utf-8"), original
-                    )
+                self.assertEqual(identity_path.read_text(encoding="utf-8"), original)
 
     def test_identity_reference_metadata_match_helpers_cover_supported_shapes(
         self,
@@ -1874,39 +1879,41 @@ Ethernet Address: aa:bb:cc:dd:ee:04
 
     def test_identity_validation_rejects_malformed_references_before_load(self) -> None:
         for manifest_ref in ("../outside.json", "refs/local.json#bad fragment"):
-            with self.subTest(manifest_ref=manifest_ref):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    identity_path = Path(temp_dir) / "local-node.json"
-                    document = _identity_document(
-                        NodeIdentity(node_id="legacy-node-id"),
-                        created_at="2026-07-08T00:00:00+00:00",
-                    )
-                    references = document["references"]
-                    assert isinstance(references, dict)
-                    references["manifest_refs"] = [manifest_ref]
-                    original = json.dumps(document)
-                    identity_path.write_text(original, encoding="utf-8")
+            with (
+                self.subTest(manifest_ref=manifest_ref),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                identity_path = Path(temp_dir) / "local-node.json"
+                document = _identity_document(
+                    NodeIdentity(node_id="legacy-node-id"),
+                    created_at="2026-07-08T00:00:00+00:00",
+                )
+                references = document["references"]
+                assert isinstance(references, dict)
+                references["manifest_refs"] = [manifest_ref]
+                original = json.dumps(document)
+                identity_path.write_text(original, encoding="utf-8")
 
-                    with self.assertLogs(
+                with (
+                    self.assertLogs(
                         "aethermesh_core.identity", level="WARNING"
-                    ) as logs:
-                        with self.assertRaisesRegex(
-                            IdentityPersistenceError, "malformed local reference"
-                        ):
-                            load_or_create_identity(identity_path)
+                    ) as logs,
+                    self.assertRaisesRegex(
+                        IdentityPersistenceError, "malformed local reference"
+                    ),
+                ):
+                    load_or_create_identity(identity_path)
 
-                    self.assertEqual(
-                        identity_path.read_text(encoding="utf-8"), original
+                self.assertEqual(identity_path.read_text(encoding="utf-8"), original)
+                self.assertTrue(
+                    any(
+                        "identity validation failed for local-node.json" in line
+                        for line in logs.output
                     )
-                    self.assertTrue(
-                        any(
-                            "identity validation failed for local-node.json" in line
-                            for line in logs.output
-                        )
-                    )
-                    self.assertFalse(
-                        any(str(identity_path.parent) in line for line in logs.output)
-                    )
+                )
+                self.assertFalse(
+                    any(str(identity_path.parent) in line for line in logs.output)
+                )
 
     def test_malformed_attribution_critical_identity_data_fails_closed(
         self,
@@ -1920,75 +1927,75 @@ Ethernet Address: aa:bb:cc:dd:ee:04
             "missing contribution attribution",
         )
         for case_name in case_names:
-            with self.subTest(case_name=case_name):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    root = Path(temp_dir)
-                    identity_path = root / "local-node.json"
-                    document = _identity_document(
-                        NodeIdentity(node_id="legacy-node-id"),
-                        created_at="2026-07-08T00:00:00+00:00",
-                        creator_node_id="original-creator-node",
+            with (
+                self.subTest(case_name=case_name),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                root = Path(temp_dir)
+                identity_path = root / "local-node.json"
+                document = _identity_document(
+                    NodeIdentity(node_id="legacy-node-id"),
+                    created_at="2026-07-08T00:00:00+00:00",
+                    creator_node_id="original-creator-node",
+                )
+                referenced_artifacts: dict[str, str] = {}
+                if case_name == "missing creator node id":
+                    node = document["node"]
+                    assert isinstance(node, dict)
+                    node.pop("creator_node_id")
+                    expected_message = "node.creator_node_id"
+                elif case_name == "invalid node id format":
+                    node = document["node"]
+                    assert isinstance(node, dict)
+                    node["node_id"] = "bad node id"
+                    expected_message = "node.node_id"
+                elif case_name == "corrupted manifest reference":
+                    references = document["references"]
+                    assert isinstance(references, dict)
+                    references["manifest_refs"] = ["../private/manifest.json"]
+                    expected_message = "references.manifest_refs"
+                elif case_name == "malformed validation receipt":
+                    references = document["references"]
+                    assert isinstance(references, dict)
+                    references["validation_receipt_refs"] = [
+                        "receipts/receipt-0001.json"
+                    ]
+                    referenced_artifacts = {"receipts/receipt-0001.json": "{not-json"}
+                    expected_message = "referenced local artifact is malformed"
+                elif case_name == "missing lineage fields":
+                    document["lineage"] = {}
+                    expected_message = "parent_node_ids"
+                else:
+                    document.pop("contribution_attribution")
+                    expected_message = "contribution_attribution"
+                for relative_path, contents in referenced_artifacts.items():
+                    artifact_path = root / relative_path
+                    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                    artifact_path.write_text(contents, encoding="utf-8")
+                original_identity = json.dumps(document)
+                identity_path.write_text(original_identity, encoding="utf-8")
+
+                with self.assertRaises(IdentityPersistenceError) as context:
+                    load_or_create_identity(
+                        identity_path,
+                        hardware_inputs=_hardware(),
+                        node_id_factory=lambda: self.fail(
+                            "malformed identity must not generate a replacement"
+                        ),
                     )
-                    referenced_artifacts: dict[str, str] = {}
-                    if case_name == "missing creator node id":
-                        node = document["node"]
-                        assert isinstance(node, dict)
-                        node.pop("creator_node_id")
-                        expected_message = "node.creator_node_id"
-                    elif case_name == "invalid node id format":
-                        node = document["node"]
-                        assert isinstance(node, dict)
-                        node["node_id"] = "bad node id"
-                        expected_message = "node.node_id"
-                    elif case_name == "corrupted manifest reference":
-                        references = document["references"]
-                        assert isinstance(references, dict)
-                        references["manifest_refs"] = ["../private/manifest.json"]
-                        expected_message = "references.manifest_refs"
-                    elif case_name == "malformed validation receipt":
-                        references = document["references"]
-                        assert isinstance(references, dict)
-                        references["validation_receipt_refs"] = [
-                            "receipts/receipt-0001.json"
-                        ]
-                        referenced_artifacts = {
-                            "receipts/receipt-0001.json": "{not-json"
-                        }
-                        expected_message = "referenced local artifact is malformed"
-                    elif case_name == "missing lineage fields":
-                        document["lineage"] = {}
-                        expected_message = "parent_node_ids"
-                    else:
-                        document.pop("contribution_attribution")
-                        expected_message = "contribution_attribution"
-                    for relative_path, contents in referenced_artifacts.items():
-                        artifact_path = root / relative_path
-                        artifact_path.parent.mkdir(parents=True, exist_ok=True)
-                        artifact_path.write_text(contents, encoding="utf-8")
-                    original_identity = json.dumps(document)
-                    identity_path.write_text(original_identity, encoding="utf-8")
 
-                    with self.assertRaises(IdentityPersistenceError) as context:
-                        load_or_create_identity(
-                            identity_path,
-                            hardware_inputs=_hardware(),
-                            node_id_factory=lambda: self.fail(
-                                "malformed identity must not generate a replacement"
-                            ),
-                        )
-
-                    message = str(context.exception)
-                    self.assertIn(f"identity file {identity_path.name}", message)
-                    self.assertNotIn(str(identity_path.parent), message)
-                    self.assertIn(expected_message, message)
+                message = str(context.exception)
+                self.assertIn(f"identity file {identity_path.name}", message)
+                self.assertNotIn(str(identity_path.parent), message)
+                self.assertIn(expected_message, message)
+                self.assertEqual(
+                    identity_path.read_text(encoding="utf-8"), original_identity
+                )
+                for relative_path, contents in referenced_artifacts.items():
                     self.assertEqual(
-                        identity_path.read_text(encoding="utf-8"), original_identity
+                        (root / relative_path).read_text(encoding="utf-8"),
+                        contents,
                     )
-                    for relative_path, contents in referenced_artifacts.items():
-                        self.assertEqual(
-                            (root / relative_path).read_text(encoding="utf-8"),
-                            contents,
-                        )
 
     def test_identity_validation_rejects_invalid_node_id_format_without_overwrite(
         self,
@@ -2188,9 +2195,11 @@ Ethernet Address: aa:bb:cc:dd:ee:04
             ("freebsd13", "freebsd13"),
         ]
         for platform_name, expected in cases:
-            with self.subTest(platform_name=platform_name):
-                with patch("aethermesh_core.identity.sys.platform", platform_name):
-                    self.assertEqual(_default_goos(), expected)
+            with (
+                self.subTest(platform_name=platform_name),
+                patch("aethermesh_core.identity.sys.platform", platform_name),
+            ):
+                self.assertEqual(_default_goos(), expected)
 
     def test_default_command_runner_trims_stdout(self) -> None:
         self.assertEqual(

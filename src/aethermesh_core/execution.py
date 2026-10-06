@@ -7,10 +7,11 @@ outputs, and return immutable provenance-bearing receipts.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping, Protocol
+from typing import Protocol
 
 from aethermesh_core.models import Job, JobResult
 from aethermesh_core.validation import ValidationResult, validate_job_result
@@ -181,7 +182,7 @@ class LocalExecutor:
         failure: ExecutionFailure | None = None
         try:
             result = self.runner.run(execution_job)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - justification: untrusted runner failures become redacted failed receipts.
             failure = ExecutionFailure(
                 code="executor_exception",
                 message=f"work runner raised {type(exc).__name__}",

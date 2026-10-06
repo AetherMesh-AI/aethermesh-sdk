@@ -429,15 +429,15 @@ class LocalShutdownTests(unittest.TestCase):
         self.assertEqual(report["shutdown_outcome"], "unsafe_incomplete")
 
     def test_shutdown_error_reporting_tolerates_unwritable_log(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with (
-                patch(
-                    "aethermesh_core.local_shutdown.append_json_line",
-                    side_effect=OSError("log unavailable"),
-                ),
-                self.assertRaises(LocalShutdownError) as raised,
-            ):
-                shutdown_local_node(Path(temp_dir))
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch(
+                "aethermesh_core.local_shutdown.append_json_line",
+                side_effect=OSError("log unavailable"),
+            ),
+            self.assertRaises(LocalShutdownError) as raised,
+        ):
+            shutdown_local_node(Path(temp_dir))
 
         self.assertEqual(
             raised.exception.to_dict()["error_code"], "SHUTDOWN_RUNTIME_STOP_FAILED"

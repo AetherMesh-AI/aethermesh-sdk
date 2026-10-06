@@ -34,7 +34,7 @@ class MeshMessage:
         if self.recipient_node_id is not None:
             _require_non_empty_string("recipient_node_id", self.recipient_node_id)
         if not isinstance(self.payload, dict):
-            raise ValueError("payload must be a dictionary")
+            raise ValueError("payload must be a dictionary")  # noqa: TRY004 - justification: public validation callers catch ValueError.
         _validate_json_compatible("payload", self.payload)
         if self.correlation_id is not None:
             _require_non_empty_string("correlation_id", self.correlation_id)
@@ -74,7 +74,7 @@ def _validate_json_compatible(field_name: str, value: object) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
             if not isinstance(key, str):
-                raise ValueError(f"{field_name} keys must be strings")
+                raise ValueError(f"{field_name} keys must be strings")  # noqa: TRY004 - justification: public validation callers catch ValueError.
             _validate_json_compatible(f"{field_name}.{key}", item)
         return
     raise ValueError(f"{field_name} must contain only JSON-compatible values")
@@ -84,7 +84,7 @@ def message_from_mapping(entry: object) -> MeshMessage:
     """Build a validated MeshMessage from a JSON-like mapping."""
 
     if not isinstance(entry, dict):
-        raise ValueError("must be an object")
+        raise ValueError("must be an object")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     message_id = entry.get("message_id")
     message_type = entry.get("message_type")
     sender_node_id = entry.get("sender_node_id")
@@ -92,11 +92,11 @@ def message_from_mapping(entry: object) -> MeshMessage:
     payload = entry.get("payload", {})
     correlation_id = entry.get("correlation_id")
     if not isinstance(message_id, str):
-        raise ValueError("message_id must be a non-empty string")
+        raise ValueError("message_id must be a non-empty string")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     if not isinstance(message_type, str):
-        raise ValueError("message_type must be a non-empty string")
+        raise ValueError("message_type must be a non-empty string")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     if not isinstance(sender_node_id, str):
-        raise ValueError("sender_node_id must be a non-empty string")
+        raise ValueError("sender_node_id must be a non-empty string")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     return MeshMessage(
         message_id=message_id,
         message_type=message_type,

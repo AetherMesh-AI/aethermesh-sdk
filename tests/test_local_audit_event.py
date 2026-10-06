@@ -237,9 +237,11 @@ class LocalAuditEventTests(unittest.TestCase):
             ({**_minimal_event(), 1: "invalid"}, "field names must be strings"),
         ]
         for event, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(LocalAuditEventError, message):
-                    validate_local_audit_event(event)
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(LocalAuditEventError, message),
+            ):
+                validate_local_audit_event(event)
 
     def test_rejects_invalid_optional_references(self) -> None:
         cases = [
@@ -260,9 +262,11 @@ class LocalAuditEventTests(unittest.TestCase):
             ({"signatures": {"receipt": ""}}, "signatures"),
         ]
         for optional_fields, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(LocalAuditEventError, message):
-                    validate_local_audit_event({**_minimal_event(), **optional_fields})
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(LocalAuditEventError, message),
+            ):
+                validate_local_audit_event({**_minimal_event(), **optional_fields})
 
     def test_contribution_update_requires_a_supported_outcome(self) -> None:
         event = {

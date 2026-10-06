@@ -437,7 +437,7 @@ class LocalNodeServiceTests(unittest.TestCase):
         service, bus, ledger = _service("node-a")
 
         def malformed_result(job: object) -> JobResult:
-            job_id = getattr(job, "job_id")
+            job_id = job.job_id
             return JobResult(
                 job_id=job_id,
                 node_id="node-a",

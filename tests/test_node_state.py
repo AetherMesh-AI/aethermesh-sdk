@@ -85,15 +85,15 @@ class NodeStateTests(unittest.TestCase):
             },
         ]
         for document in cases:
-            with self.subTest(document=document):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    state_path = Path(temp_dir) / "node-state.json"
-                    state_path.write_text(json.dumps(document), encoding="utf-8")
+            with (
+                self.subTest(document=document),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                state_path = Path(temp_dir) / "node-state.json"
+                state_path.write_text(json.dumps(document), encoding="utf-8")
 
-                    with self.assertRaises(NodeStatePersistenceError):
-                        load_node_processing_state(
-                            state_path, expected_node_id="node-a"
-                        )
+                with self.assertRaises(NodeStatePersistenceError):
+                    load_node_processing_state(state_path, expected_node_id="node-a")
 
     def test_duplicate_processed_ids_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -202,14 +202,14 @@ class NodeStateTests(unittest.TestCase):
                 extra_fields={},
             )
 
-            with mock.patch(
-                "aethermesh_core.node_state.os.replace",
-                side_effect=OSError("replace failed"),
+            with (
+                mock.patch(
+                    "aethermesh_core.node_state.os.replace",
+                    side_effect=OSError("replace failed"),
+                ),
+                self.assertRaisesRegex(NodeStatePersistenceError, "replace failed"),
             ):
-                with self.assertRaisesRegex(
-                    NodeStatePersistenceError, "replace failed"
-                ):
-                    save_node_processing_state(state_path, state)
+                save_node_processing_state(state_path, state)
 
             self.assertEqual(
                 state_path.read_text(encoding="utf-8"), '{"original": true}\n'

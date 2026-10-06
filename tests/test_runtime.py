@@ -257,12 +257,14 @@ class LocalRuntimeBoundaryTests(unittest.TestCase):
                 def to_dict(self) -> dict[str, object]:
                     return structured_payload
 
-            with patch(
-                "aethermesh_core.cli.start_local_node",
-                return_value=FakeStartup(),
-            ) as runtime_start:
-                with patch("builtins.print") as printed:
-                    exit_code = main(["start-local-node", "--runtime-dir", temp_dir])
+            with (
+                patch(
+                    "aethermesh_core.cli.start_local_node",
+                    return_value=FakeStartup(),
+                ) as runtime_start,
+                patch("builtins.print") as printed,
+            ):
+                exit_code = main(["start-local-node", "--runtime-dir", temp_dir])
 
             self.assertEqual(exit_code, 0)
             runtime_start.assert_called_once_with(

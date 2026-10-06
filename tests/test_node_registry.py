@@ -80,11 +80,13 @@ class NodeRegistryTests(unittest.TestCase):
         registry = NodeRegistry()
 
         for node_id in ("", "   "):
-            with self.subTest(node_id=repr(node_id)):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(node_id=repr(node_id)),
+                self.assertRaisesRegex(
                     ValueError, "node_id must be a non-empty string"
-                ):
-                    registry.register(node_id)
+                ),
+            ):
+                registry.register(node_id)
 
     def test_rejects_duplicate_node_ids(self) -> None:
         registry = NodeRegistry()

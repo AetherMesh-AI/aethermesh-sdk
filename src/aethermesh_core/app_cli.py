@@ -185,7 +185,7 @@ def _local_api_is_aethermesh(*, host: str, port: int) -> bool:
             connection.request("GET", "/health")
             response = connection.getresponse()
             payload = json.loads(response.read().decode("utf-8"))
-    except Exception:
+    except Exception:  # noqa: BLE001 - justification: a failed health probe must fall back to the local startup path.
         return False
     return (
         isinstance(payload, dict) and payload.get("service") == "aethermesh-local-node"

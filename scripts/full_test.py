@@ -501,7 +501,7 @@ def run_checks(
                 active_resources.difference_update(check.resources)
                 try:
                     result = future.result()
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - justification: runner failures must be reported without aborting other checks.
                     result = CheckResult(
                         check,
                         1,

@@ -9,9 +9,8 @@ from aethermesh_core.contribution import (
     TEXT_STATS_MAX_UNITS,
     score_validated_contribution,
 )
-from aethermesh_core.models import Job, JobResult
+from aethermesh_core.models import Job, JobResult, NodeIdentity
 from aethermesh_core.runner import LocalRunner
-from aethermesh_core.models import NodeIdentity
 from aethermesh_core.validation import validate_job_result
 
 
