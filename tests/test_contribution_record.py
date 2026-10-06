@@ -10,13 +10,13 @@ from typing import Any
 from unittest.mock import patch
 
 from aethermesh_core.contribution_record import (
-    ContributionRecordError,
     PHASE_1_JOB_CAPABILITIES,
+    ContributionRecordError,
     apply_local_validation_receipt,
     new_unvalidated_validation,
     record_validated_contribution,
-    validate_local_contribution_record,
     validate_contribution_record,
+    validate_local_contribution_record,
 )
 from aethermesh_core.local_json_helpers import canonical_json_hash
 from aethermesh_core.runtime_service import LOCAL_CAPABILITY_DEFINITIONS
@@ -326,7 +326,7 @@ class ContributionRecordTests(unittest.TestCase):
                 try:
                     record_validated_contribution(self.minimal, self.root, journal_path)
                 except (
-                    Exception
+                    Exception  # noqa: BLE001 - justification: Surface every worker failure in the main thread.
                 ) as exc:  # pragma: no cover - justification: failure capture
                     errors.append(exc)
 
@@ -368,7 +368,7 @@ class ContributionRecordTests(unittest.TestCase):
                     self.minimal,
                     self.root,
                     journal_path,
-                    clock=lambda: datetime(2026, 7, 13, 12, 0, 2),
+                    clock=lambda: datetime(2026, 7, 13, 12, 0, 2),  # noqa: DTZ001 - justification: Exercise rejection of naive clocks.
                 )
             self.assertFalse(journal_path.exists())
 

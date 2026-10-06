@@ -77,11 +77,13 @@ class LocalMessageBusTests(unittest.TestCase):
         bus = LocalMessageBus()
 
         for node_id in ["", None, 123]:
-            with self.subTest(node_id=node_id):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(node_id=node_id),
+                self.assertRaisesRegex(
                     ValueError, "node_id must be a non-empty string"
-                ):
-                    bus.register_node(cast(Any, node_id))
+                ),
+            ):
+                bus.register_node(cast(Any, node_id))
 
         bus.register_node("node-a")
         with self.assertRaisesRegex(ValueError, "already registered: node-a"):

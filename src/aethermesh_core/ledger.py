@@ -6,14 +6,14 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from aethermesh_core.models import JobResult
 from aethermesh_core.result_hash import result_hash as canonical_result_hash
-
 
 _UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 
@@ -48,7 +48,7 @@ class ContributionRecord:
         return document
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "ContributionRecord":
+    def from_dict(cls, payload: dict[str, Any]) -> ContributionRecord:
         """Deserialize one JSON-compatible contribution record."""
 
         _require_record_field(payload, "node_id", str)
@@ -234,7 +234,7 @@ class ContributionLedger:
         return document
 
     @classmethod
-    def from_document(cls, document: dict[str, Any]) -> "ContributionLedger":
+    def from_document(cls, document: dict[str, Any]) -> ContributionLedger:
         """Deserialize a ledger from the local JSON file shape."""
 
         version = document.get("version")
@@ -328,7 +328,7 @@ def _accounted_units(result: JobResult) -> int:
     if not isinstance(result.contribution_units, int) or isinstance(
         result.contribution_units, bool
     ):
-        raise ValueError("contribution_units must be an integer")
+        raise ValueError("contribution_units must be an integer")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     return max(result.contribution_units, 0)
 
 
@@ -384,7 +384,7 @@ def _require_utc_timestamp(field_name: str, value: object) -> None:
             f"ledger record field '{field_name}' must be an RFC 3339 UTC timestamp"
         )
     try:
-        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise LedgerPersistenceError(
             f"ledger record field '{field_name}' must be an RFC 3339 UTC timestamp"

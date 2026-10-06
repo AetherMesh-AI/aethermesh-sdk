@@ -3,8 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
-import aethermesh_core.local_transport as local_transport
+from aethermesh_core import local_transport
 from aethermesh_core.local_transport import (
     LocalTransportError,
     collect_local_outboxes,

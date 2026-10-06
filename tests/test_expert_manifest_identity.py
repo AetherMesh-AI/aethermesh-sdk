@@ -14,7 +14,6 @@ from aethermesh_core.expert_manifest import (
     validate_expert_manifest,
 )
 
-
 ROOT = Path(__file__).parents[1]
 SAMPLE = ROOT / "examples/model-experts/echo-expert-v0/manifest.json"
 

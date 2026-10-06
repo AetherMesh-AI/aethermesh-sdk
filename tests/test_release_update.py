@@ -1,6 +1,7 @@
 import hashlib
 import unittest
 from pathlib import Path
+from typing import Self
 from unittest import mock
 
 from aethermesh_core import release_update
@@ -229,18 +230,20 @@ class ReleaseUpdateTests(unittest.TestCase):
             ],
         }
         installed: list[str] = []
-        with mock.patch.object(
-            release_update, "_fetch_json", return_value=release_json
-        ) as fetch_json:
-            with mock.patch.object(
+        with (
+            mock.patch.object(
+                release_update, "_fetch_json", return_value=release_json
+            ) as fetch_json,
+            mock.patch.object(
                 release_update, "_fetch_bytes", return_value=wheel_bytes
-            ) as fetch_bytes:
-                with mock.patch.object(
-                    release_update,
-                    "_install_wheel",
-                    side_effect=lambda path: installed.append(path.name),
-                ):
-                    result = release_update.update_from_latest_release()
+            ) as fetch_bytes,
+            mock.patch.object(
+                release_update,
+                "_install_wheel",
+                side_effect=lambda path: installed.append(path.name),
+            ),
+        ):
+            result = release_update.update_from_latest_release()
 
         fetch_json.assert_called_once_with(release_update.DEFAULT_LATEST_RELEASE_URL)
         fetch_bytes.assert_called_once_with("https://github.example/aethermesh.whl")
@@ -256,23 +259,21 @@ class ReleaseUpdateTests(unittest.TestCase):
                 {"tag_name": "v1"},
             )
 
-        with mock.patch.object(
-            release_update, "_fetch_bytes", return_value=b"not json"
+        with (
+            mock.patch.object(release_update, "_fetch_bytes", return_value=b"not json"),
+            self.assertRaisesRegex(release_update.ReleaseUpdateError, "valid JSON"),
         ):
-            with self.assertRaisesRegex(
-                release_update.ReleaseUpdateError, "valid JSON"
-            ):
-                release_update._fetch_json("https://github.example/release")
+            release_update._fetch_json("https://github.example/release")
 
-        with mock.patch.object(release_update, "_fetch_bytes", return_value=b"[]"):
-            with self.assertRaisesRegex(
-                release_update.ReleaseUpdateError, "JSON object"
-            ):
-                release_update._fetch_json("https://github.example/release")
+        with (
+            mock.patch.object(release_update, "_fetch_bytes", return_value=b"[]"),
+            self.assertRaisesRegex(release_update.ReleaseUpdateError, "JSON object"),
+        ):
+            release_update._fetch_json("https://github.example/release")
 
     def test_fetch_bytes_wraps_download_errors(self) -> None:
         class FakeResponse:
-            def __enter__(self) -> "FakeResponse":
+            def __enter__(self) -> Self:
                 return self
 
             def __exit__(self, *_args: object) -> None:
@@ -291,28 +292,32 @@ class ReleaseUpdateTests(unittest.TestCase):
                 b"payload",
             )
 
-        with mock.patch.object(
-            release_update, "urlopen", side_effect=OSError("offline")
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch.object(
+                release_update, "urlopen", side_effect=OSError("offline")
+            ),
+            self.assertRaisesRegex(
                 release_update.ReleaseUpdateError, "failed to download"
-            ):
-                release_update._fetch_bytes("https://github.example/release")
+            ),
+        ):
+            release_update._fetch_bytes("https://github.example/release")
 
     def test_install_wheel_wraps_pip_failures(self) -> None:
         with mock.patch.object(release_update.subprocess, "check_call") as check_call:
             release_update._install_wheel(Path("aethermesh.whl"))
         check_call.assert_called_once()
 
-        with mock.patch.object(
-            release_update.subprocess,
-            "check_call",
-            side_effect=release_update.subprocess.CalledProcessError(1, ["pip"]),
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch.object(
+                release_update.subprocess,
+                "check_call",
+                side_effect=release_update.subprocess.CalledProcessError(1, ["pip"]),
+            ),
+            self.assertRaisesRegex(
                 release_update.ReleaseUpdateError, "failed to install"
-            ):
-                release_update._install_wheel(Path("aethermesh.whl"))
+            ),
+        ):
+            release_update._install_wheel(Path("aethermesh.whl"))
 
 
 if __name__ == "__main__":

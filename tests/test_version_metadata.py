@@ -62,11 +62,13 @@ class VersionMetadataTests(unittest.TestCase):
             validate_version_metadata(captured)
 
     def test_capture_version_metadata_rejects_path_like_build_identifier(self) -> None:
-        with mock.patch.dict(
-            "os.environ", {"AETHERMESH_BUILD_ID": "/Users/example/build"}
+        with (
+            mock.patch.dict(
+                "os.environ", {"AETHERMESH_BUILD_ID": "/Users/example/build"}
+            ),
+            self.assertRaisesRegex(ValueError, "build_identifier"),
         ):
-            with self.assertRaisesRegex(ValueError, "build_identifier"):
-                capture_version_metadata(captured_at="2026-07-08T00:00:00+00:00")
+            capture_version_metadata(captured_at="2026-07-08T00:00:00+00:00")
 
     def test_identity_manifest_validation_fails_for_missing_version_metadata(
         self,

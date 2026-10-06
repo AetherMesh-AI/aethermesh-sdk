@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from hashlib import sha256
 from collections.abc import Mapping
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, TypeVar
 

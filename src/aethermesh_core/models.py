@@ -15,7 +15,7 @@ class NodeIdentity:
     node_name: str | None = None
 
     @classmethod
-    def ephemeral(cls) -> "NodeIdentity":
+    def ephemeral(cls) -> NodeIdentity:
         """Create a caller-usable ephemeral identity for local demo runs."""
 
         return cls(node_id=f"node-{uuid4().hex}")

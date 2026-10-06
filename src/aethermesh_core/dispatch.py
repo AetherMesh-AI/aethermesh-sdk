@@ -150,7 +150,7 @@ def _node_heartbeat_payloads(
         if not isinstance(heartbeat_sequence, int) or not isinstance(
             heartbeat_count, int
         ):
-            raise ValueError("registry heartbeat fields must be integers")
+            raise ValueError("registry heartbeat fields must be integers")  # noqa: TRY004 - justification: public validation callers catch ValueError.
         capabilities = entry["capabilities"]
         if not isinstance(capabilities, list) or not all(
             isinstance(capability, str) for capability in capabilities

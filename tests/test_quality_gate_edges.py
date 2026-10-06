@@ -11,7 +11,7 @@ from typing import Any, cast
 from unittest import mock
 
 from aethermesh_core import cli
-from aethermesh_core.dispatch import dispatch_local_batch, _node_heartbeat_payloads
+from aethermesh_core.dispatch import _node_heartbeat_payloads, dispatch_local_batch
 from aethermesh_core.flow_audit import (
     FlowAuditError,
     _assert_contribution_message_matches_receipt,
@@ -22,26 +22,28 @@ from aethermesh_core.flow_audit import (
 )
 from aethermesh_core.identity import IdentityPersistenceError, _load_identity
 from aethermesh_core.job_manifest import ManifestError, load_job_manifest
-from aethermesh_core.json_io import remove_temp_file, atomic_write_json
+from aethermesh_core.json_io import atomic_write_json, remove_temp_file
 from aethermesh_core.ledger import (
+    ContributionLedger,
     ContributionRecord,
     LedgerPersistenceError,
-    _remove_temp_file as remove_ledger_temp,
-    save_ledger_document,
-    ContributionLedger,
     _string_output,
+    save_ledger_document,
+)
+from aethermesh_core.ledger import (
+    _remove_temp_file as remove_ledger_temp,
 )
 from aethermesh_core.local_transport import (
     LocalTransportError,
     _message_from_inbox_entry,
     _write_inbox_document,
 )
+from aethermesh_core.message_bus import LocalMessageBus
 from aethermesh_core.message_log import (
     MessageLogPersistenceError,
     _message_from_document_entry,
     write_message_log,
 )
-from aethermesh_core.message_bus import LocalMessageBus
 from aethermesh_core.messages import MeshMessage, message_from_mapping
 from aethermesh_core.models import Job, JobResult, NodeIdentity
 from aethermesh_core.node_service import (
@@ -56,6 +58,8 @@ from aethermesh_core.node_state import (
     empty_node_processing_state,
     load_node_processing_state,
     save_node_processing_state,
+)
+from aethermesh_core.node_state import (
     _remove_temp_file as remove_node_state_temp,
 )
 from aethermesh_core.peer_registry import (
@@ -68,8 +72,10 @@ from aethermesh_core.receipts import (
     _output_summary,
     _single_emitted_message,
     _validate_receipt_document,
-    _remove_temp_file as remove_receipt_temp,
     write_receipt_document,
+)
+from aethermesh_core.receipts import (
+    _remove_temp_file as remove_receipt_temp,
 )
 from aethermesh_core.result_hash import result_hash_from_fields
 from aethermesh_core.scheduler import ScheduledJob, _coerce_job
@@ -88,20 +94,20 @@ class QualityGateEdgeCoverageTests(unittest.TestCase):
             max_binary_files=0,
             exclude_path_prefix=["graphify-out/", "wordlists/node-names/"],
         )
-        diff = "\n".join(
-            [
-                "100\t200\tgraphify-out/graph.json",
-                "-\t-\tgraphify-out/graph.html",
-                "9000\t0\twordlists/node-names/cpu-traits.txt",
-                "2\t3\tsrc/aethermesh_core/example.py",
-            ]
+        diff = (
+            "100\t200\tgraphify-out/graph.json\n"
+            "-\t-\tgraphify-out/graph.html\n"
+            "9000\t0\twordlists/node-names/cpu-traits.txt\n"
+            "2\t3\tsrc/aethermesh_core/example.py"
         )
         result = argparse.Namespace(returncode=0, stdout=diff)
         stdout = io.StringIO()
 
-        with mock.patch.object(ci_quality_gates, "run", return_value=result):
-            with contextlib.redirect_stdout(stdout):
-                exit_code = ci_quality_gates.command_pr_size(args)
+        with (
+            mock.patch.object(ci_quality_gates, "run", return_value=result),
+            contextlib.redirect_stdout(stdout),
+        ):
+            exit_code = ci_quality_gates.command_pr_size(args)
 
         self.assertEqual(exit_code, 0)
         self.assertIn("files=1", stdout.getvalue())
@@ -191,9 +197,11 @@ class QualityGateEdgeCoverageTests(unittest.TestCase):
             _node_heartbeat_payloads(BadCapabilities())
 
     def test_cli_defensive_branches(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(ValueError):
-                cli.run_local_flow("missing.json", str(Path(tmp) / "out" / "child"))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(ValueError),
+        ):
+            cli.run_local_flow("missing.json", str(Path(tmp) / "out" / "child"))
         bad_result = InboxProcessResult(
             node_id="n",
             processed=[],
@@ -455,13 +463,13 @@ class QualityGateEdgeCoverageTests(unittest.TestCase):
                 atomic_write_json(Path("/dev/null/child.json"), {"ok": True})
 
             state_path = Path(tmp) / "state.json"
-            with mock.patch(
-                "aethermesh_core.node_state.os.replace", side_effect=OSError("boom")
+            with (
+                mock.patch(
+                    "aethermesh_core.node_state.os.replace", side_effect=OSError("boom")
+                ),
+                self.assertRaises(NodeStatePersistenceError),
             ):
-                with self.assertRaises(NodeStatePersistenceError):
-                    save_node_processing_state(
-                        state_path, empty_node_processing_state("n")
-                    )
+                save_node_processing_state(state_path, empty_node_processing_state("n"))
 
         self.assertIsNone(_string_output(None))
 

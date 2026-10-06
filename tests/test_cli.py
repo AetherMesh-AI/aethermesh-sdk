@@ -404,12 +404,14 @@ class CliTests(unittest.TestCase):
                 }
 
         stdout = io.StringIO()
-        with patch(
-            "aethermesh_core.cli.update_from_latest_release",
-            return_value=FakeUpdateResult(),
-        ) as updater:
-            with contextlib.redirect_stdout(stdout):
-                exit_code = main(["update", "--dry-run"])
+        with (
+            patch(
+                "aethermesh_core.cli.update_from_latest_release",
+                return_value=FakeUpdateResult(),
+            ) as updater,
+            contextlib.redirect_stdout(stdout),
+        ):
+            exit_code = main(["update", "--dry-run"])
 
         self.assertEqual(exit_code, 0)
         updater.assert_called_once_with(dry_run=True, release_url=None)
@@ -418,12 +420,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["installed"], False)
 
         stderr = io.StringIO()
-        with patch(
-            "aethermesh_core.cli.update_from_latest_release",
-            side_effect=ReleaseUpdateError("network sad"),
+        with (
+            patch(
+                "aethermesh_core.cli.update_from_latest_release",
+                side_effect=ReleaseUpdateError("network sad"),
+            ),
+            contextlib.redirect_stderr(stderr),
         ):
-            with contextlib.redirect_stderr(stderr):
-                exit_code = main(["update"])
+            exit_code = main(["update"])
 
         self.assertEqual(exit_code, 1)
         self.assertIn("network sad", stderr.getvalue())
@@ -2742,71 +2746,71 @@ class CliTests(unittest.TestCase):
             ),
         ]
         for name, state_contents, expected_error in cases:
-            with self.subTest(name=name):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    message_log_path = Path(temp_dir) / "local-messages.json"
-                    ledger_path = Path(temp_dir) / "local-ledger.json"
-                    output_message_log_path = Path(temp_dir) / "output-messages.json"
-                    state_path = Path(temp_dir) / "node-state.json"
-                    message_log_path.write_text(
-                        json.dumps(
-                            {
-                                "version": 1,
-                                "messages": [
-                                    {
-                                        "message_id": "msg-0001",
-                                        "message_type": "job_assigned",
-                                        "sender_node_id": "local-scheduler",
-                                        "recipient_node_id": "local-node-a",
-                                        "payload": {
-                                            "job_id": "echo-1",
-                                            "job_type": "echo",
-                                            "payload": {"message": "hello mesh"},
-                                        },
-                                        "correlation_id": "echo-1",
-                                    }
-                                ],
-                            }
-                        ),
-                        encoding="utf-8",
-                    )
-                    output_message_log_path.write_text("keep output", encoding="utf-8")
-                    state_path.write_text(state_contents, encoding="utf-8")
-                    original_state = state_path.read_text(encoding="utf-8")
-                    stdout = io.StringIO()
-                    stderr = io.StringIO()
+            with (
+                self.subTest(name=name),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                message_log_path = Path(temp_dir) / "local-messages.json"
+                ledger_path = Path(temp_dir) / "local-ledger.json"
+                output_message_log_path = Path(temp_dir) / "output-messages.json"
+                state_path = Path(temp_dir) / "node-state.json"
+                message_log_path.write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "messages": [
+                                {
+                                    "message_id": "msg-0001",
+                                    "message_type": "job_assigned",
+                                    "sender_node_id": "local-scheduler",
+                                    "recipient_node_id": "local-node-a",
+                                    "payload": {
+                                        "job_id": "echo-1",
+                                        "job_type": "echo",
+                                        "payload": {"message": "hello mesh"},
+                                    },
+                                    "correlation_id": "echo-1",
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                output_message_log_path.write_text("keep output", encoding="utf-8")
+                state_path.write_text(state_contents, encoding="utf-8")
+                original_state = state_path.read_text(encoding="utf-8")
+                stdout = io.StringIO()
+                stderr = io.StringIO()
 
-                    with (
-                        contextlib.redirect_stdout(stdout),
-                        contextlib.redirect_stderr(stderr),
-                    ):
-                        exit_code = main(
-                            [
-                                "process-local-inbox",
-                                "--node-id",
-                                "local-node-a",
-                                "--message-log-path",
-                                str(message_log_path),
-                                "--ledger-path",
-                                str(ledger_path),
-                                "--output-message-log-path",
-                                str(output_message_log_path),
-                                "--node-state-path",
-                                str(state_path),
-                            ]
-                        )
+                with (
+                    contextlib.redirect_stdout(stdout),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    exit_code = main(
+                        [
+                            "process-local-inbox",
+                            "--node-id",
+                            "local-node-a",
+                            "--message-log-path",
+                            str(message_log_path),
+                            "--ledger-path",
+                            str(ledger_path),
+                            "--output-message-log-path",
+                            str(output_message_log_path),
+                            "--node-state-path",
+                            str(state_path),
+                        ]
+                    )
 
-                    self.assertEqual(exit_code, 1)
-                    self.assertEqual(stdout.getvalue(), "")
-                    self.assertIn(expected_error, stderr.getvalue())
-                    self.assertFalse(ledger_path.exists())
-                    self.assertEqual(
-                        output_message_log_path.read_text(encoding="utf-8"),
-                        "keep output",
-                    )
-                    self.assertEqual(
-                        state_path.read_text(encoding="utf-8"), original_state
-                    )
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn(expected_error, stderr.getvalue())
+                self.assertFalse(ledger_path.exists())
+                self.assertEqual(
+                    output_message_log_path.read_text(encoding="utf-8"),
+                    "keep output",
+                )
+                self.assertEqual(state_path.read_text(encoding="utf-8"), original_state)
 
     def test_process_local_inbox_with_node_state_resumes_without_duplicate_ledger_records(
         self,

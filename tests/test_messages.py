@@ -2,8 +2,8 @@ import unittest
 from typing import Any, cast
 
 from aethermesh_core.messages import (
-    MeshMessage,
     SUPPORTED_MESSAGE_TYPES,
+    MeshMessage,
     message_from_mapping,
 )
 

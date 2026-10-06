@@ -13,13 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from aethermesh_core.local_json_helpers import load_json_mapping
+from aethermesh_core.local_restart import LocalRestartError, LocalRestartResult
+from aethermesh_core.local_restart import restart_local_node as _restart_local_node
 from aethermesh_core.local_runtime_config import (
     configured_runtime_path,
     configured_runtime_ref,
     load_optional_local_runtime_config,
 )
-from aethermesh_core.local_restart import LocalRestartError, LocalRestartResult
-from aethermesh_core.local_restart import restart_local_node as _restart_local_node
 from aethermesh_core.local_shutdown import LocalShutdownError, LocalShutdownResult
 from aethermesh_core.local_shutdown import shutdown_local_node as _shutdown_local_node
 from aethermesh_core.local_startup import LocalStartupError, LocalStartupResult
@@ -140,7 +140,7 @@ def local_node_status(runtime_dir: str | Path) -> dict[str, object]:
 
     root = Path(runtime_dir)
     config = load_optional_local_runtime_config(root, LocalRuntimeInspectError)
-    identity_path, manifest_path, identity, manifest = _load_identity_and_manifest(
+    _identity_path, manifest_path, identity, manifest = _load_identity_and_manifest(
         root, config
     )
     node = _required_mapping(identity, "node", "identity")
@@ -257,7 +257,7 @@ def _uptime_seconds(start_timestamp: str | None) -> int | None:
     if start_timestamp is None:
         return None
     try:
-        started_at = datetime.fromisoformat(start_timestamp.replace("Z", "+00:00"))
+        started_at = datetime.fromisoformat(start_timestamp.replace("Z", "+00:00"))  # noqa: FURB162 - justification: retain legacy malformed-Z rejection before uptime calculation.
     except ValueError:
         return None
     if started_at.tzinfo is None:

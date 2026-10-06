@@ -164,9 +164,11 @@ class JobManifestTests(unittest.TestCase):
         ]
         for patch, message in cases:
             node = {"node_id": "local-node-a"} | patch
-            with self.subTest(patch=patch):
-                with self.assertRaisesRegex(ManifestError, message):
-                    self._load({"version": 1, "nodes": [node], "jobs": [self._job()]})
+            with (
+                self.subTest(patch=patch),
+                self.assertRaisesRegex(ManifestError, message),
+            ):
+                self._load({"version": 1, "nodes": [node], "jobs": [self._job()]})
 
     def test_malformed_json_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -285,15 +287,17 @@ class JobManifestTests(unittest.TestCase):
 
     def test_malformed_duplicate_and_content_addressed_job_ids(self) -> None:
         for job_id in ("has spaces", "../job", "UPPERCASE", "sha256:bad"):
-            with self.subTest(job_id=job_id):
-                with self.assertRaisesRegex(ManifestError, "job_id must be a local ID"):
-                    self._load(
-                        {
-                            "version": 1,
-                            "nodes": ["local-node-a"],
-                            "jobs": [{"job_id": job_id, "job_type": "echo"}],
-                        }
-                    )
+            with (
+                self.subTest(job_id=job_id),
+                self.assertRaisesRegex(ManifestError, "job_id must be a local ID"),
+            ):
+                self._load(
+                    {
+                        "version": 1,
+                        "nodes": ["local-node-a"],
+                        "jobs": [{"job_id": job_id, "job_type": "echo"}],
+                    }
+                )
         with self.assertRaisesRegex(ManifestError, "duplicate active job_id: echo-1"):
             self._load(
                 {
@@ -359,13 +363,15 @@ class JobManifestTests(unittest.TestCase):
             ),
         ]
         for document, expected_message in cases:
-            with self.subTest(expected_message=expected_message):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    path = Path(temp_dir) / "manifest.json"
-                    path.write_text(json.dumps(document), encoding="utf-8")
-                    with self.assertRaises(ManifestError) as cm:
-                        load_job_manifest(path)
-                    self.assertEqual(str(cm.exception), expected_message)
+            with (
+                self.subTest(expected_message=expected_message),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                path = Path(temp_dir) / "manifest.json"
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(ManifestError) as cm:
+                    load_job_manifest(path)
+                self.assertEqual(str(cm.exception), expected_message)
 
     def test_string_node_entries_default_to_available_status(self) -> None:
         batch = self._load(

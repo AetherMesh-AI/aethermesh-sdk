@@ -11,11 +11,11 @@ import re
 import secrets
 import shutil
 import subprocess  # nosec B404 - fixed local hardware probe commands only; no user input.
-from functools import lru_cache
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from hashlib import sha256
 from io import StringIO
 from pathlib import Path
@@ -1063,7 +1063,7 @@ def _colon_value(text: str, key: str) -> str:
 
 def _linux_physical_core_count(cpuinfo: str, lscpu: str) -> int | str:
     pairs = set(
-        re.findall(r"physical id\s*:\s*(\S+).*?core id\s*:\s*(\S+)", cpuinfo, re.S)
+        re.findall(r"physical id\s*:\s*(\S+).*?core id\s*:\s*(\S+)", cpuinfo, re.DOTALL)
     )
     if pairs:
         return len(pairs)

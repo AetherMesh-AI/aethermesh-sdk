@@ -47,8 +47,10 @@ class ContributionLedgerTests(unittest.TestCase):
         self.assertEqual(record.created_at, "2026-07-14T14:08:07Z")
         assert record.created_at is not None
         self.assertEqual(
-            datetime.strptime(record.created_at, "%Y-%m-%dT%H:%M:%SZ"),
-            datetime(2026, 7, 14, 14, 8, 7),
+            datetime.strptime(record.created_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=UTC
+            ),
+            datetime(2026, 7, 14, 14, 8, 7, tzinfo=UTC),
         )
         self.assertEqual(summary.node_id, "node-a")
         self.assertEqual(summary.completed_job_count, 1)
@@ -326,9 +328,11 @@ class ContributionLedgerTests(unittest.TestCase):
             "2026-7-14T14:08:07Z",
             "not-a-time",
         ):
-            with self.subTest(timestamp=timestamp):
-                with self.assertRaisesRegex(LedgerPersistenceError, "created_at"):
-                    ContributionRecord.from_dict({**record, "created_at": timestamp})
+            with (
+                self.subTest(timestamp=timestamp),
+                self.assertRaisesRegex(LedgerPersistenceError, "created_at"),
+            ):
+                ContributionRecord.from_dict({**record, "created_at": timestamp})
 
     def test_missing_json_ledger_loads_as_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -479,12 +483,14 @@ class ContributionLedgerTests(unittest.TestCase):
             ledger = ContributionLedger()
             ledger.record(JobResult("job-1", "node-a", "completed", "hello", None, 1))
 
-            with mock.patch(
-                "aethermesh_core.ledger.os.replace",
-                side_effect=OSError("replace failed"),
+            with (
+                mock.patch(
+                    "aethermesh_core.ledger.os.replace",
+                    side_effect=OSError("replace failed"),
+                ),
+                self.assertRaisesRegex(LedgerPersistenceError, "replace failed"),
             ):
-                with self.assertRaisesRegex(LedgerPersistenceError, "replace failed"):
-                    save_ledger_document(ledger_path, ledger)
+                save_ledger_document(ledger_path, ledger)
 
             self.assertEqual(
                 ledger_path.read_text(encoding="utf-8"), '{"original": true}\n'

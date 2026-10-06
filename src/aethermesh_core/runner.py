@@ -427,7 +427,7 @@ def build_text_retrieve_output(payload: dict[str, Any]) -> dict[str, object]:
     matches: list[dict[str, Any]] = []
     for index, document in enumerate(documents):
         if not isinstance(document, dict):
-            raise ValueError(f"text_retrieve documents[{index}] must be an object")
+            raise ValueError(f"text_retrieve documents[{index}] must be an object")  # noqa: TRY004 - justification: public validation callers catch ValueError.
         document_id = document.get("id")
         if not isinstance(document_id, str) or not document_id.strip():
             raise ValueError(
@@ -475,7 +475,7 @@ def build_text_chunk_output(payload: dict[str, Any]) -> dict[str, object]:
 
     text = payload.get("text")
     if not isinstance(text, str):
-        raise ValueError("text_chunk payload requires string field: text")
+        raise ValueError("text_chunk payload requires string field: text")  # noqa: TRY004 - justification: public validation callers catch ValueError.
 
     max_chars = payload.get("max_chars", TEXT_CHUNK_DEFAULT_MAX_CHARS)
     if (

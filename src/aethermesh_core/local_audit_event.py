@@ -13,7 +13,7 @@ import json
 import os
 import re
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -303,7 +303,7 @@ def _require_timestamp(value: object) -> None:
             "local audit event.timestamp must be a UTC timestamp"
         )
     try:
-        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise LocalAuditEventError(
             "local audit event.timestamp must be a UTC timestamp"

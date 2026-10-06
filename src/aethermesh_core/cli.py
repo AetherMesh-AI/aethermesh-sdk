@@ -37,21 +37,11 @@ from aethermesh_core.ledger import (
 from aethermesh_core.local_transport import (
     LocalTransportError,
     collect_local_outboxes,
-    local_inbox_path,
     load_local_inbox,
+    local_inbox_path,
     materialize_local_inboxes,
     write_local_inbox,
     write_local_outbox,
-)
-from aethermesh_core.runtime import (
-    LocalRestartError,
-    LocalShutdownError,
-    LocalStartupError,
-    LocalValidationError,
-    restart_local_node_runtime,
-    start_local_node_runtime,
-    stop_local_node_runtime,
-    validate_local_node_results,
 )
 from aethermesh_core.message_bus import LocalMessageBus
 from aethermesh_core.message_log import (
@@ -90,6 +80,16 @@ from aethermesh_core.release_update import (
     update_from_latest_release,
 )
 from aethermesh_core.runner import LocalRunner
+from aethermesh_core.runtime import (
+    LocalRestartError,
+    LocalShutdownError,
+    LocalStartupError,
+    LocalValidationError,
+    restart_local_node_runtime,
+    start_local_node_runtime,
+    stop_local_node_runtime,
+    validate_local_node_results,
+)
 from aethermesh_core.scheduler import LocalScheduler, NodeStatus, ScheduledNode
 from aethermesh_core.simulation import run_local_simulation
 from aethermesh_core.validation import validate_job_result
@@ -558,7 +558,7 @@ def _mark_ephemeral_message_log(document: dict[str, object], enabled: bool) -> N
         return
     metadata = document.get("metadata")
     if not isinstance(metadata, dict):
-        raise ValueError("message log metadata must be an object")
+        raise ValueError("message log metadata must be an object")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     metadata["artifact_mode"] = "ephemeral_test"
     metadata["ephemeral"] = True
 
@@ -977,14 +977,14 @@ def _run_local_flow_with_roster(
         processed_assignments.extend(inbox_result.processed)
         raw_processed_count = node_payload["processed_assignment_count"]
         if not isinstance(raw_processed_count, int):
-            raise ValueError("process-local-inbox returned invalid processed count")
+            raise ValueError("process-local-inbox returned invalid processed count")  # noqa: TRY004 - justification: public validation callers catch ValueError.
         processed_count = raw_processed_count
         skipped_ids = node_payload.get("skipped_processed_message_ids", [])
         if not isinstance(skipped_ids, list):
-            raise ValueError("process-local-inbox returned invalid skipped id list")
+            raise ValueError("process-local-inbox returned invalid skipped id list")  # noqa: TRY004 - justification: public validation callers catch ValueError.
         ignored_ids = node_payload["ignored_message_ids"]
         if not isinstance(ignored_ids, list):
-            raise ValueError("process-local-inbox returned invalid ignored id list")
+            raise ValueError("process-local-inbox returned invalid ignored id list")  # noqa: TRY004 - justification: public validation callers catch ValueError.
         per_node_results.append(
             {
                 "node_id": node_id,
@@ -1092,7 +1092,7 @@ def _run_local_flow_with_roster(
 def _require_int_result_field(result: dict[str, object], field_name: str) -> int:
     value = result.get(field_name)
     if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"node result field must be an integer: {field_name}")
+        raise ValueError(f"node result field must be an integer: {field_name}")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     return value
 
 
@@ -1249,12 +1249,12 @@ def _emitted_messages_from_inbox_result(
 
 
 def _node_ids_from_replayed_messages(
-    messages: Sequence[object], node_id: str
+    messages: Sequence[MeshMessage], node_id: str
 ) -> list[str]:
     node_ids = {node_id, "local-ledger"}
     for message in messages:
-        sender = getattr(message, "sender_node_id")
-        recipient = getattr(message, "recipient_node_id")
+        sender = message.sender_node_id
+        recipient = message.recipient_node_id
         node_ids.add(sender)
         if recipient is not None:
             node_ids.add(recipient)

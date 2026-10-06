@@ -110,7 +110,7 @@ def validate_validation_receipt_result_hash(
     """Require a local validation receipt to identify its exact result hash."""
 
     if not isinstance(receipt, dict):
-        raise ValueError("validation receipt must be an object")
+        raise ValueError("validation receipt must be an object")  # noqa: TRY004 - justification: public validation callers catch ValueError.
     if receipt.get("result_hash") != expected_result_hash:
         raise ValueError("validation receipt result_hash does not match the result")
 

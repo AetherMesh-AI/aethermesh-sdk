@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -375,7 +375,7 @@ def _timestamp(value: object, context: str) -> None:
     if not _TIMESTAMP.fullmatch(timestamp):
         raise ExpertManifestError(f"{context} must be a UTC timestamp ending in Z")
     try:
-        datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+        datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise ExpertManifestError(
             f"{context} must be a UTC timestamp ending in Z"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -149,7 +149,7 @@ def _timestamp(value: object, context: str) -> datetime:
     if not isinstance(value, str):
         raise JobFailureSchemaError(f"{context} must be a UTC timestamp")
     try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ")
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise JobFailureSchemaError(f"{context} must be a UTC timestamp") from exc
 

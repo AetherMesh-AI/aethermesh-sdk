@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -358,7 +358,7 @@ def _require_timestamp(document: dict[str, Any], field: str) -> None:
     if not _TIMESTAMP.fullmatch(value):
         raise CapabilityRecordError(f"{field} must be an RFC 3339 UTC timestamp")
     try:
-        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise CapabilityRecordError(
             f"{field} must be an RFC 3339 UTC timestamp"
