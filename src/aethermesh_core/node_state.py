@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 NODE_STATE_VERSION = 1
 _REQUIRED_FIELDS = {
     "version",

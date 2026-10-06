@@ -4,8 +4,8 @@ from aethermesh_core.contribution import score_validated_contribution
 from aethermesh_core.models import Job, JobResult
 from aethermesh_core.validation import (
     _INTEGER,
-    _SchemaNode,
     _array,
+    _SchemaNode,
     _validate_declared_output_schema,
     validate_job_result,
 )

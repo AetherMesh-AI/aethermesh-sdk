@@ -733,12 +733,14 @@ class LocalNodeStartupTests(unittest.TestCase):
             self.assertEqual(payload["validation_result"], "passed")
 
             stderr = io.StringIO()
-            with patch(
-                "aethermesh_core.cli.start_local_node",
-                side_effect=LocalStartupError("manifest bad"),
+            with (
+                patch(
+                    "aethermesh_core.cli.start_local_node",
+                    side_effect=LocalStartupError("manifest bad"),
+                ),
+                contextlib.redirect_stderr(stderr),
             ):
-                with contextlib.redirect_stderr(stderr):
-                    exit_code = main(["start-local-node", "--runtime-dir", temp_dir])
+                exit_code = main(["start-local-node", "--runtime-dir", temp_dir])
             self.assertEqual(exit_code, 1)
             self.assertIn("manifest bad", stderr.getvalue())
             self.assertIn("STARTUP_MANIFEST_INVALID", stderr.getvalue())
@@ -846,16 +848,18 @@ class LocalNodeStartupTests(unittest.TestCase):
             ("work_directories", [], "work_directories must be an object"),
         )
         for key, value, message in cases:
-            with self.subTest(key=key):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    runtime = Path(temp_dir)
+            with (
+                self.subTest(key=key),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                runtime = Path(temp_dir)
+                start_local_node(runtime)
+                manifest_path = runtime / "manifests" / "local-node-manifest.json"
+                manifest = self._load(manifest_path)
+                manifest[key] = value
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaisesRegex(LocalStartupError, message):
                     start_local_node(runtime)
-                    manifest_path = runtime / "manifests" / "local-node-manifest.json"
-                    manifest = self._load(manifest_path)
-                    manifest[key] = value
-                    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-                    with self.assertRaisesRegex(LocalStartupError, message):
-                        start_local_node(runtime)
 
     def test_manifest_validation_rejects_identity_and_directory_mismatches(
         self,
@@ -866,17 +870,19 @@ class LocalNodeStartupTests(unittest.TestCase):
             (("work_directories", "logs"), "elsewhere", "work_directories.logs"),
         )
         for path, value, message in cases:
-            with self.subTest(path=path):
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    runtime = Path(temp_dir)
+            with (
+                self.subTest(path=path),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                runtime = Path(temp_dir)
+                start_local_node(runtime)
+                manifest_path = runtime / "manifests" / "local-node-manifest.json"
+                manifest = self._load(manifest_path)
+                section, field = path
+                manifest[section][field] = value
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaisesRegex(LocalStartupError, message):
                     start_local_node(runtime)
-                    manifest_path = runtime / "manifests" / "local-node-manifest.json"
-                    manifest = self._load(manifest_path)
-                    section, field = path
-                    manifest[section][field] = value
-                    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-                    with self.assertRaisesRegex(LocalStartupError, message):
-                        start_local_node(runtime)
 
     def test_low_level_startup_errors_are_reported_clearly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -904,12 +910,14 @@ class LocalNodeStartupTests(unittest.TestCase):
             manifest_dir.mkdir(parents=True)
             manifest_path = manifest_dir / "local-node-manifest.json"
             manifest_path.write_text(json.dumps({"version": 1}), encoding="utf-8")
-            with patch(
-                "aethermesh_core.local_startup.load_or_create_identity",
-                side_effect=ValueError("identity backend failed"),
+            with (
+                patch(
+                    "aethermesh_core.local_startup.load_or_create_identity",
+                    side_effect=ValueError("identity backend failed"),
+                ),
+                self.assertRaises(ValueError),
             ):
-                with self.assertRaises(ValueError):
-                    start_local_node(runtime)
+                start_local_node(runtime)
 
     def test_default_manifest_uses_current_runtime_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -928,7 +936,7 @@ class LocalNodeStartupTests(unittest.TestCase):
         with path.open("r", encoding="utf-8") as handle:
             document = json.load(handle)
         if not isinstance(document, dict):
-            raise AssertionError("expected object")
+            raise AssertionError("expected object")  # noqa: TRY004 - justification: Fail the test, including under python -O.
         return document
 
 

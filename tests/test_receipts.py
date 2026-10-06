@@ -10,13 +10,13 @@ from aethermesh_core.ledger import ContributionLedger
 from aethermesh_core.messages import MeshMessage
 from aethermesh_core.models import Job, JobResult
 from aethermesh_core.node_service import ProcessedAssignment
-from aethermesh_core.result_hash import result_hash
 from aethermesh_core.receipts import (
-    build_receipt_document,
     ReceiptPersistenceError,
+    build_receipt_document,
     load_receipt_document_if_exists,
     write_receipt_document,
 )
+from aethermesh_core.result_hash import result_hash
 from aethermesh_core.validation import validate_job_result
 from aethermesh_core.version_metadata import (
     capture_version_metadata,
@@ -339,12 +339,14 @@ class ReceiptTests(unittest.TestCase):
             path = Path(temp_dir) / "receipts.json"
             path.write_text('{"original": true}\n', encoding="utf-8")
 
-            with mock.patch(
-                "aethermesh_core.receipts.os.replace",
-                side_effect=OSError("replace failed"),
+            with (
+                mock.patch(
+                    "aethermesh_core.receipts.os.replace",
+                    side_effect=OSError("replace failed"),
+                ),
+                self.assertRaisesRegex(ReceiptPersistenceError, "replace failed"),
             ):
-                with self.assertRaisesRegex(ReceiptPersistenceError, "replace failed"):
-                    write_receipt_document(path, document)
+                write_receipt_document(path, document)
 
             self.assertEqual(path.read_text(encoding="utf-8"), '{"original": true}\n')
             self.assertEqual(

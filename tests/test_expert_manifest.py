@@ -2,21 +2,21 @@ import copy
 import json
 import tempfile
 import unittest
+from functools import partial
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from aethermesh_core.expert_manifest import (
-    ExpertManifestError,
     RECEIPT_VERSION,
+    ExpertManifestError,
+    _receipt_matches_manifest,
     deterministic_non_model_artifact_placeholder,
     expert_is_usable,
     load_expert_manifest,
-    validate_expert_output,
     validate_expert_manifest,
-    _receipt_matches_manifest,
+    validate_expert_output,
 )
-
 
 ROOT = Path(__file__).parents[1]
 SAMPLE = ROOT / "examples/model-experts/echo-expert-v0/manifest.json"
@@ -764,9 +764,9 @@ class ExpertManifestTests(unittest.TestCase):
                     }
 
                     for use_manifest in (
-                        lambda: load_expert_manifest(manifest_path),
-                        lambda: validate_expert_output(
-                            manifest_path, "echoed local value"
+                        partial(load_expert_manifest, manifest_path),
+                        partial(
+                            validate_expert_output, manifest_path, "echoed local value"
                         ),
                     ):
                         with self.assertRaisesRegex(

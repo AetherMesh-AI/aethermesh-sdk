@@ -47,12 +47,14 @@ class JsonIoTests(unittest.TestCase):
             path = Path(temp_dir) / "artifact.json"
             path.write_text('{"original": true}\n', encoding="utf-8")
 
-            with mock.patch(
-                "aethermesh_core.json_io.os.replace",
-                side_effect=OSError("replace failed"),
+            with (
+                mock.patch(
+                    "aethermesh_core.json_io.os.replace",
+                    side_effect=OSError("replace failed"),
+                ),
+                self.assertRaisesRegex(OSError, "replace failed"),
             ):
-                with self.assertRaisesRegex(OSError, "replace failed"):
-                    atomic_write_json(path, {"a": 1})
+                atomic_write_json(path, {"a": 1})
 
             self.assertEqual(path.read_text(encoding="utf-8"), '{"original": true}\n')
             self.assertEqual(

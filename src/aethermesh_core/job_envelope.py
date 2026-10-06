@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from aethermesh_core.scheduler import SUPPORTED_LOCAL_JOB_TYPES
@@ -115,7 +115,7 @@ def _integer(document: dict[str, Any], field: str, expected: int, context: str) 
 def _timestamp(document: dict[str, Any], field: str) -> None:
     value = _text(document, field, "job envelope")
     try:
-        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise JobEnvelopeError(f"job envelope.{field} must be a UTC timestamp") from exc
     if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:

@@ -39,8 +39,8 @@ class _SchemaNode:
 
     type_name: str
     accepted_types: tuple[type[object], ...]
-    fields: dict[str, "_SchemaNode"] | None = None
-    items: "_SchemaNode | None" = None
+    fields: dict[str, _SchemaNode] | None = None
+    items: _SchemaNode | None = None
 
 
 _STRING = _SchemaNode("str", (str,))

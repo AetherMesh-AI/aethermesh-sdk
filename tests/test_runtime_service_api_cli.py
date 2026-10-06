@@ -1,6 +1,5 @@
 import asyncio
 import builtins
-from copy import deepcopy
 import json
 import os
 import subprocess
@@ -9,6 +8,7 @@ import tempfile
 import time
 import types
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -21,14 +21,14 @@ from aethermesh_core import app_cli
 from aethermesh_core.api import _lifespan, create_app
 from aethermesh_core.identity import deterministic_machine_node_id
 from aethermesh_core.job_result_schema import validate_job_result_document
-from aethermesh_core.local_json_helpers import canonical_json_hash
 from aethermesh_core.local_audit_event import (
     append_local_audit_event as real_append_audit_event,
 )
+from aethermesh_core.local_json_helpers import canonical_json_hash
 from aethermesh_core.models import JobResult
+from aethermesh_core.release_update import ReleaseUpdateError
 from aethermesh_core.result_hash import canonical_result_document_hash
 from aethermesh_core.runner import LocalRunner, run_local_job
-from aethermesh_core.release_update import ReleaseUpdateError
 from aethermesh_core.runtime_service import (
     NodeRuntimeService,
     RuntimeServiceError,
@@ -48,10 +48,10 @@ from aethermesh_core.runtime_service import (
     _memory_total_bytes,
     _merge_config,
     _output_payload_record,
-    _result_summary,
-    _validate_stored_output_payload,
     _package_version,
     _pid_is_alive,
+    _result_summary,
+    _validate_stored_output_payload,
 )
 
 
@@ -383,14 +383,16 @@ class RuntimeServiceTests(unittest.TestCase):
             )
 
     def test_output_payload_rejects_non_json_output(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with self.assertRaisesRegex(RuntimeServiceError, "JSON-compatible"):
-                _output_payload_record(
-                    {"unsupported": object()},
-                    job_id="local-job-0123456789abcdef0123456789abcdef",
-                    root=Path(temp_dir),
-                    store=True,
-                )
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            self.assertRaisesRegex(RuntimeServiceError, "JSON-compatible"),
+        ):
+            _output_payload_record(
+                {"unsupported": object()},
+                job_id="local-job-0123456789abcdef0123456789abcdef",
+                root=Path(temp_dir),
+                store=True,
+            )
 
     def test_large_local_output_uses_retrievable_digest_addressed_payload_artifact(
         self,
@@ -739,15 +741,17 @@ class RuntimeServiceTests(unittest.TestCase):
                 "attribution_metadata": {},
             }
 
-            with patch(
-                "aethermesh_core.runtime_service.append_local_audit_event",
-                side_effect=OSError("read-only audit log"),
-            ):
-                with self.assertRaisesRegex(
+            with (
+                patch(
+                    "aethermesh_core.runtime_service.append_local_audit_event",
+                    side_effect=OSError("read-only audit log"),
+                ),
+                self.assertRaisesRegex(
                     RuntimeServiceError,
                     "could not write local job submission audit event",
-                ):
-                    service.submit_local_job(request)
+                ),
+            ):
+                service.submit_local_job(request)
 
             self.assertFalse((root / "data" / "job-status" / f"{job_id}.json").exists())
             self.assertFalse(
@@ -776,16 +780,18 @@ class RuntimeServiceTests(unittest.TestCase):
                 "attribution_metadata": {},
             }
 
-            with patch.object(
-                service,
-                "_local_node_id_for_submission",
-                side_effect=RuntimeServiceError("identity unavailable"),
-            ):
-                with self.assertRaisesRegex(
+            with (
+                patch.object(
+                    service,
+                    "_local_node_id_for_submission",
+                    side_effect=RuntimeServiceError("identity unavailable"),
+                ),
+                self.assertRaisesRegex(
                     RuntimeServiceError,
                     "could not write local job submission audit event",
-                ):
-                    service.submit_local_job(request)
+                ),
+            ):
+                service.submit_local_job(request)
 
             self.assertFalse((root / "data" / "job-status" / f"{job_id}.json").exists())
             self.assertFalse(
@@ -988,17 +994,19 @@ class RuntimeServiceTests(unittest.TestCase):
                     raise OSError("read-only audit log")
                 return real_append_audit_event(path, event)
 
-            with patch(
-                "aethermesh_core.runtime_service.append_local_audit_event",
-                side_effect=fail_receipt_audit,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                patch(
+                    "aethermesh_core.runtime_service.append_local_audit_event",
+                    side_effect=fail_receipt_audit,
+                ),
+                self.assertRaisesRegex(
                     RuntimeServiceError,
                     "could not write local validation receipt creation audit event",
-                ):
-                    service.execute_submitted_local_job(
-                        submission["job_id"], "worker-local-a"
-                    )
+                ),
+            ):
+                service.execute_submitted_local_job(
+                    submission["job_id"], "worker-local-a"
+                )
 
             self.assertTrue(
                 (
@@ -1106,14 +1114,14 @@ class RuntimeServiceTests(unittest.TestCase):
                     side_effect=OSError("read-only audit log"),
                 ),
                 patch("aethermesh_core.runtime_service.run_local_job") as runner,
-            ):
-                with self.assertRaisesRegex(
+                self.assertRaisesRegex(
                     RuntimeServiceError,
                     "could not write local job execution start audit event",
-                ):
-                    service.execute_submitted_local_job(
-                        submission["job_id"], "worker-local-a"
-                    )
+                ),
+            ):
+                service.execute_submitted_local_job(
+                    submission["job_id"], "worker-local-a"
+                )
             runner.assert_not_called()
             self.assertEqual(
                 service.get_local_job_status(submission["job_id"])["status"], "queued"
@@ -2043,9 +2051,11 @@ class RuntimeServiceTests(unittest.TestCase):
                     "65536-byte",
                 ),
             ):
-                with self.subTest(payload=payload):
-                    with self.assertRaisesRegex(RuntimeServiceError, message):
-                        service.submit_local_job({**request, "input_payload": payload})
+                with (
+                    self.subTest(payload=payload),
+                    self.assertRaisesRegex(RuntimeServiceError, message),
+                ):
+                    service.submit_local_job({**request, "input_payload": payload})
 
     def test_deterministic_executor_metadata_and_receipt_preserve_provenance(
         self,
@@ -4435,13 +4445,15 @@ class RuntimeServiceTests(unittest.TestCase):
             {"operator_cost_label": "token reward for each job"},
             {"operator_notes": "payments and pricing are negotiated elsewhere"},
         ]:
-            with self.subTest(hints=hints):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(hints=hints),
+                self.assertRaisesRegex(
                     RuntimeServiceError, "advisory field|token economics"
-                ):
-                    _config_capability_resource_hints(
-                        {"capabilities": {"resource_hints": {"work.echo": hints}}}
-                    )
+                ),
+            ):
+                _config_capability_resource_hints(
+                    {"capabilities": {"resource_hints": {"work.echo": hints}}}
+                )
 
         self.assertEqual(
             _config_capability_resource_hints(
@@ -4466,9 +4478,11 @@ class RuntimeServiceTests(unittest.TestCase):
             {"capabilities": {"resource_hints": {"work.echo": {"cpu_class": ""}}}},
         ]
         for config in invalid_configs:
-            with self.subTest(config=config):
-                with self.assertRaises(RuntimeServiceError):
-                    _config_capability_resource_hints(config)
+            with (
+                self.subTest(config=config),
+                self.assertRaises(RuntimeServiceError),
+            ):
+                _config_capability_resource_hints(config)
 
     def test_capability_availability_reports_local_failure_and_capacity(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4720,9 +4734,11 @@ class RuntimeServiceTests(unittest.TestCase):
         )
 
     def test_environment_and_platform_fallback_helpers(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"AETHERMESH_HOME": temp_dir}):
-                self.assertEqual(_default_home(), Path(temp_dir))
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch.dict(os.environ, {"AETHERMESH_HOME": temp_dir}),
+        ):
+            self.assertEqual(_default_home(), Path(temp_dir))
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(_default_home(), Path.home() / ".aethermesh")
 
@@ -4750,16 +4766,16 @@ class RuntimeServiceTests(unittest.TestCase):
             {"SC_PAGE_SIZE": 1},
             {"SC_PHYS_PAGES": 2},
         ]:
-            with self.subTest(partial_names=partial_names):
-                with (
-                    patch(
-                        "aethermesh_core.runtime_service.os.sysconf_names",
-                        partial_names,
-                    ),
-                    patch("aethermesh_core.runtime_service.os.sysconf") as sysconf,
-                ):
-                    self.assertIsNone(_memory_total_bytes())
-                    sysconf.assert_not_called()
+            with (
+                self.subTest(partial_names=partial_names),
+                patch(
+                    "aethermesh_core.runtime_service.os.sysconf_names",
+                    partial_names,
+                ),
+                patch("aethermesh_core.runtime_service.os.sysconf") as sysconf,
+            ):
+                self.assertIsNone(_memory_total_bytes())
+                sysconf.assert_not_called()
 
         with patch(
             "aethermesh_core.runtime_service.os.kill", side_effect=PermissionError
@@ -5316,7 +5332,7 @@ class AppCliTests(unittest.TestCase):
                     if self.interval != 0.8:
                         raise AssertionError(self.interval)
                     if not callable(self.function):
-                        raise AssertionError(self.function)
+                        raise AssertionError(self.function)  # noqa: TRY004 - justification: Assert the test double contract under python -O.
 
             fake_uvicorn = types.SimpleNamespace(run=fake_run)
             with (
@@ -5388,11 +5404,11 @@ class AppCliTests(unittest.TestCase):
                     raise ImportError("blocked")
                 return real_import(name, globals, locals, fromlist, level)
 
-            with patch("builtins.__import__", side_effect=blocked_import):
-                with self.assertRaisesRegex(
-                    Exception, "API/UI dependencies are missing"
-                ):
-                    app_cli._serve(host="127.0.0.1", port=7280, open_browser=False)
+            with (
+                patch("builtins.__import__", side_effect=blocked_import),
+                self.assertRaisesRegex(Exception, "API/UI dependencies are missing"),
+            ):
+                app_cli._serve(host="127.0.0.1", port=7280, open_browser=False)
 
 
 class LocalSafetyMetadataTests(unittest.TestCase):

@@ -107,14 +107,14 @@ class LocalRestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             start_local_node(root)
-            with patch(
-                "aethermesh_core.local_restart.start_local_node",
-                side_effect=LocalRestartError("restart changed node_id"),
+            with (
+                patch(
+                    "aethermesh_core.local_restart.start_local_node",
+                    side_effect=LocalRestartError("restart changed node_id"),
+                ),
+                self.assertRaisesRegex(LocalRestartError, "restart changed node_id"),
             ):
-                with self.assertRaisesRegex(
-                    LocalRestartError, "restart changed node_id"
-                ):
-                    restart_local_node(root)
+                restart_local_node(root)
 
     def test_restart_cli_reports_json_and_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -156,7 +156,7 @@ class LocalRestartTests(unittest.TestCase):
         with path.open("r", encoding="utf-8") as handle:
             document = json.load(handle)
         if not isinstance(document, dict):
-            raise AssertionError("expected object")
+            raise AssertionError("expected object")  # noqa: TRY004 - justification: Fail the test, including under python -O.
         return document
 
 

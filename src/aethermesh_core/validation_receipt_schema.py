@@ -309,7 +309,7 @@ def _timestamp(value: object, label: str) -> None:
     ):
         raise ValidationReceiptSchemaError(f"{label} must be a UTC timestamp")
     try:
-        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise ValidationReceiptSchemaError(f"{label} must be a UTC timestamp") from exc
     if parsed.tzinfo != UTC:

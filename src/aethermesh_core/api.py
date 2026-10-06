@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import logging
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import Body, FastAPI, Request
@@ -269,7 +269,7 @@ def create_app(service: NodeRuntimeService | None = None) -> FastAPI:
         return runtime_service.list_local_job_results()
 
     @app.post("/api/result-reports/preflight")
-    def preflight_result_report(report: Any = Body(...)) -> dict[str, Any]:
+    def preflight_result_report(report: Annotated[Any, Body()]) -> dict[str, Any]:
         """Reject malformed report candidates before local validation can begin."""
 
         return runtime_service.preflight_local_result_report(report)

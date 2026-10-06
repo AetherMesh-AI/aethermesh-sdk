@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 
+from aethermesh_core.json_io import atomic_write_json
 from aethermesh_core.message_log import (
     build_collected_outbox_message_log_document,
     load_message_log_messages,
     write_message_log,
 )
-from aethermesh_core.json_io import atomic_write_json
 from aethermesh_core.messages import MeshMessage, message_from_mapping
 
 LOCAL_TRANSPORT_INBOX_VERSION = 1

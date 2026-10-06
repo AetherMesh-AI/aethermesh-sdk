@@ -6,17 +6,17 @@ from importlib import metadata
 from pathlib import Path
 from unittest.mock import patch
 
+from aethermesh_core.local_json_helpers import canonical_json_hash
 from aethermesh_core.result_hash import (
     canonical_result_document_hash,
     validate_validation_receipt_result_hash,
 )
-from aethermesh_core.local_json_helpers import canonical_json_hash
 from aethermesh_core.validation_receipt_schema import (
     ValidationReceiptSchemaError,
     canonical_validation_receipt_hash,
     capture_validator_software_metadata,
-    validation_receipt_id,
     validate_validation_receipt_document,
+    validation_receipt_id,
 )
 
 
