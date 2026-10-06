@@ -1,4 +1,4 @@
-"""AetherMesh Core local prototype package."""
+"""AetherMesh SDK local foundations; aethermesh_core imports remain compatible."""
 
 from aethermesh_core.execution import (
     ExecutionAssignmentError,

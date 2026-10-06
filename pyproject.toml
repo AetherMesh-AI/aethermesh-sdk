@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aethermesh"
 version = "0.2.0a0"
-description = "Minimal local AetherMesh Core prototype."
+description = "Headless local foundations for the AetherMesh network SDK."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = [
+  "fastapi>=0.111",
+  "uvicorn>=0.30",
+]
+# Compatibility alias for earlier local API installations; no UI is bundled.
 ui = [
   "fastapi>=0.111",
   "uvicorn>=0.30",

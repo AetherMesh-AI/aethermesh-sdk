@@ -1,6 +1,6 @@
 """Reusable local runtime service for AetherMesh frontends.
 
-The CLI, local API, and local dashboard all use this module instead of owning
+The diagnostic CLI and headless local API use this module instead of owning
 node status logic independently. It is intentionally small and localhost-first:
 it manages local config/data paths, identity initialization, status reporting,
 and honest empty peer/job views for the current local-only prototype.
@@ -825,7 +825,7 @@ class NodeRuntimeService:
         }
 
     def package_info(self) -> dict[str, Any]:
-        """Return installed package metadata for launchers and local dashboards."""
+        """Return installed package metadata for SDK clients and local diagnostics."""
 
         return {
             "name": "aethermesh",

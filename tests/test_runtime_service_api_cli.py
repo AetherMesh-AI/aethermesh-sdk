@@ -2,7 +2,6 @@ import asyncio
 import builtins
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -79,7 +78,7 @@ async def _fetch_api_payloads(api_app: FastAPI) -> dict[str, Any]:
             "events": (await client.get("/api/events")).json(),
             "shutdown": (await client.post("/shutdown")).json(),
             "restart": (await client.post("/restart")).json(),
-            "html": (await client.get("/")).text,
+            "root": (await client.get("/")).json(),
         }
 
 
@@ -4878,12 +4877,24 @@ class ApiTests(unittest.TestCase):
             self.assertIn("events", payloads["events"])
             self.assertEqual(payloads["shutdown"]["shutdown_requested"], True)
             self.assertEqual(payloads["restart"]["restart_requested"], True)
-            self.assertIn("AetherMesh Local Node", payloads["html"])
-            self.assertIn("/api/status", payloads["html"])
-            self.assertIn("Node Name", payloads["html"])
-            self.assertIn("status.node_name", payloads["html"])
-            self.assertIn("textContent", payloads["html"])
-            self.assertNotIn("innerHTML", payloads["html"])
+            self.assertEqual(
+                payloads["root"],
+                {
+                    "service": "aethermesh-local-node",
+                    "version": payloads["health"]["version"],
+                    "status": "stopped",
+                    "network_mode": "local-only-no-p2p",
+                    "endpoints": {
+                        "health": "/health",
+                        "status": "/api/status",
+                        "node": "/api/node",
+                        "capabilities": "/api/capabilities",
+                        "jobs": "/api/jobs",
+                        "network": "/api/network",
+                        "openapi": "/openapi.json",
+                    },
+                },
+            )
 
             self.assertEqual(
                 set(payloads["health"]),
@@ -4909,6 +4920,38 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(api.title, "AetherMesh Local Node API")
             self.assertEqual(api.version, "0.2.0-alpha")
             self.assertIs(api.router.lifespan_context, _lifespan)
+
+    def test_root_is_json_with_live_runtime_status_and_reachable_endpoints(
+        self,
+    ) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                service = NodeRuntimeService.from_home(Path(temp_dir))
+                api = create_app(service)
+                transport = httpx.ASGITransport(app=api)
+                async with (
+                    _lifespan(api),
+                    httpx.AsyncClient(
+                        transport=transport, base_url="http://testserver"
+                    ) as client,
+                ):
+                    response = await client.get("/")
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(
+                        response.headers["content-type"], "application/json"
+                    )
+                    payload = response.json()
+                    self.assertEqual(payload["status"], "running")
+                    self.assertEqual(payload["network_mode"], "local-only-no-p2p")
+                    for endpoint in payload["endpoints"].values():
+                        linked_response = await client.get(endpoint)
+                        self.assertEqual(linked_response.status_code, 200, endpoint)
+                        self.assertEqual(
+                            linked_response.headers["content-type"], "application/json"
+                        )
+                self.assertEqual(service.get_node_status()["status"], "stopped")
+
+        asyncio.run(exercise())
 
     def test_lifespan_uses_same_runtime_service(self) -> None:
         async def exercise() -> None:
@@ -4946,10 +4989,6 @@ class AppCliTests(unittest.TestCase):
                 self.assertEqual(result.exit_code, 0, result.output)
                 self.assertIn(expected, result.output)
 
-            ui = runner.invoke(app_cli.app, ["ui", "--dry-run"])
-            self.assertEqual(ui.exit_code, 0)
-            self.assertIn("http://127.0.0.1:7280", ui.output)
-
     def test_cli_node_start_dry_run_reports_localhost_binding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             runner = CliRunner(env={"AETHERMESH_HOME": temp_dir})
@@ -4959,36 +4998,37 @@ class AppCliTests(unittest.TestCase):
             self.assertIn("127.0.0.1", result.output)
             self.assertIn("7280", result.output)
 
-    def test_cli_node_start_stop_delegate_to_background_manager(self) -> None:
+    def test_cli_node_start_stop_ignore_consumer_desktop_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            settings_dir = Path(temp_dir) / "config"
-            settings_dir.mkdir(parents=True)
-            (settings_dir / "desktop-settings.json").write_text(
-                json.dumps({"backgroundNodeEnabled": True}), encoding="utf-8"
-            )
-            calls: list[list[str]] = []
-
-            def fake_run(command: list[str], **_: object) -> object:
-                calls.append(command)
-                return types.SimpleNamespace(stdout="", stderr="")
-
+            service = NodeRuntimeService.from_home(temp_dir)
+            service.initialize_local_node_data()
+            settings_path = Path(temp_dir) / "config" / "desktop-settings.json"
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_text = json.dumps({"backgroundNodeEnabled": True})
+            settings_path.write_text(settings_text, encoding="utf-8")
             runner = CliRunner(env={"AETHERMESH_HOME": temp_dir})
             with (
-                patch("aethermesh_core.app_cli.sys_platform", return_value="linux"),
-                patch("aethermesh_core.app_cli.subprocess.run", side_effect=fake_run),
+                patch(
+                    "aethermesh_core.app_cli._local_api_is_aethermesh",
+                    return_value=False,
+                ),
+                patch("aethermesh_core.app_cli._serve") as serve,
+                patch("subprocess.run") as run_process,
+                patch("webbrowser.open") as open_browser,
             ):
                 start = runner.invoke(app_cli.app, ["node", "start"])
+                service.mark_runtime_started()
                 stop = runner.invoke(app_cli.app, ["node", "stop"])
 
             self.assertEqual(start.exit_code, 0, start.output)
             self.assertEqual(stop.exit_code, 0, stop.output)
-            self.assertEqual(
-                calls,
-                [
-                    ["systemctl", "--user", "start", "aethermesh-node.service"],
-                    ["systemctl", "--user", "stop", "aethermesh-node.service"],
-                ],
-            )
+            serve.assert_called_once_with(host="127.0.0.1", port=7280)
+            run_process.assert_not_called()
+            open_browser.assert_not_called()
+            self.assertEqual(service.get_node_status()["status"], "stopped")
+            self.assertIn("Marked foreground", stop.output)
+            self.assertIn("Ctrl+C", stop.output)
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), settings_text)
 
     def test_cli_node_start_reuses_existing_local_api(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5005,88 +5045,27 @@ class AppCliTests(unittest.TestCase):
             self.assertIn("already running", result.output)
             serve.assert_not_called()
 
-    def test_cli_ui_reuses_existing_local_api_without_runtime_mutation(self) -> None:
+    def test_cli_ui_command_is_retired_without_starting_or_mutating_runtime(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
+            service = NodeRuntimeService.from_home(temp_dir)
+            service.initialize_local_node_data()
+            config_before = service.paths.config_path.read_bytes()
             runner = CliRunner(env={"AETHERMESH_HOME": temp_dir})
-            identity_path = Path(temp_dir) / "identity.json"
-            identity_path.write_text(
-                json.dumps(
-                    {
-                        "node": {"creator_node_id": "creator-node"},
-                        "references": {
-                            "manifest_refs": ["manifests/local-batch.json"],
-                            "validation_receipt_refs": ["receipts/validation.json"],
-                        },
-                        "lineage": {"lineage_links": ["lineage/link.json"]},
-                        "contribution_attribution": {
-                            "creator_node_id": "creator-node",
-                            "contribution_refs": ["contributions/local.json"],
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            before = identity_path.read_text(encoding="utf-8")
             with (
-                patch(
-                    "aethermesh_core.app_cli._local_api_is_aethermesh",
-                    return_value=True,
-                ),
                 patch("aethermesh_core.app_cli._serve") as serve,
-                patch("aethermesh_core.app_cli.webbrowser.open") as open_browser,
+                patch("webbrowser.open") as open_browser,
             ):
-                result = runner.invoke(app_cli.app, ["ui"])
-                self.assertEqual(result.exit_code, 0, result.output)
-                self.assertIn(
-                    "Using already-running AetherMesh local API", result.output
-                )
-                open_browser.assert_called_once_with("http://127.0.0.1:7280")
-                serve.assert_not_called()
-                self.assertEqual(identity_path.read_text(encoding="utf-8"), before)
-
-                open_browser.reset_mock()
-                no_open_result = runner.invoke(app_cli.app, ["ui", "--no-open"])
-                self.assertEqual(no_open_result.exit_code, 0, no_open_result.output)
-                self.assertIn("Using already-running", no_open_result.output)
-                open_browser.assert_not_called()
-                serve.assert_not_called()
-                self.assertEqual(identity_path.read_text(encoding="utf-8"), before)
-
-    def test_background_control_helper_platforms_and_errors(self) -> None:
-        calls: list[list[str]] = []
-
-        def fake_run(command: list[str], **_: object) -> object:
-            calls.append(command)
-            return types.SimpleNamespace(stdout="", stderr="")
-
-        with patch("aethermesh_core.app_cli.subprocess.run", side_effect=fake_run):
-            with patch("aethermesh_core.app_cli.os.name", "nt"):
-                app_cli._control_background_node("start")
-                app_cli._control_background_node("stop")
-            with patch("aethermesh_core.app_cli.sys_platform", return_value="darwin"):
-                app_cli._control_background_node("start")
-                app_cli._control_background_node("stop")
-
-        self.assertEqual(calls[0], ["schtasks.exe", "/Run", "/TN", "AetherMesh Node"])
-        self.assertEqual(calls[1], ["schtasks.exe", "/End", "/TN", "AetherMesh Node"])
-        self.assertEqual(calls[2][:3], ["launchctl", "kickstart", "-k"])
-        self.assertEqual(calls[3][:3], ["launchctl", "kill", "TERM"])
-        self.assertIsInstance(app_cli.sys_platform(), str)
-
-        with self.assertRaisesRegex(
-            RuntimeServiceError, "unsupported background action"
-        ):
-            app_cli._control_background_node("restart")
-
-        failure = subprocess.CalledProcessError(
-            1, ["systemctl"], output="", stderr="nope"
-        )
-        with (
-            patch("aethermesh_core.app_cli.sys_platform", return_value="linux"),
-            patch("aethermesh_core.app_cli.subprocess.run", side_effect=failure),
-            self.assertRaisesRegex(Exception, "could not start background node: nope"),
-        ):
-            app_cli._control_background_node("start")
+                for args in (["ui"], ["ui", "--no-open"], ["ui", "--dry-run"]):
+                    result = runner.invoke(app_cli.app, args)
+                    self.assertEqual(result.exit_code, 2, result.output)
+                    self.assertIn("No such command", result.output)
+                    self.assertIn("ui", result.output)
+            serve.assert_not_called()
+            open_browser.assert_not_called()
+            self.assertEqual(service.paths.config_path.read_bytes(), config_before)
+            self.assertFalse(service.paths.pid_path.exists())
 
     def test_local_api_health_detection_handles_false_paths(self) -> None:
         self.assertFalse(app_cli._local_api_is_aethermesh(host="0.0.0.0", port=7280))
@@ -5302,11 +5281,9 @@ class AppCliTests(unittest.TestCase):
             self.assertEqual(printed[0].columns, ["Field", "Value"])
             self.assertEqual(printed[0].rows[-1], ("api", "http://localhost:9999"))
 
-    def test_serve_uses_uvicorn_and_reports_missing_ui_dependencies(self) -> None:
+    def test_serve_uses_uvicorn_and_reports_missing_api_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             calls: dict[str, object] = {}
-            timer_calls: list[dict[str, object]] = []
-            browser_urls: list[str] = []
 
             def fake_run(api: FastAPI, host: str, port: int, log_level: str) -> None:
                 self.assertIsInstance(api, FastAPI)
@@ -5315,61 +5292,35 @@ class AppCliTests(unittest.TestCase):
                     {"app": api, "host": host, "port": port, "log_level": log_level}
                 )
 
-            class FakeTimer:
-                def __init__(self, interval: float, function: object) -> None:
-                    self.interval = interval
-                    self.function = function
-
-                def start(self) -> None:
-                    self.assert_timer_shape()
-                    timer_calls.append(
-                        {"interval": self.interval, "function": self.function}
-                    )
-                    assert callable(self.function)
-                    self.function()
-
-                def assert_timer_shape(self) -> None:
-                    if self.interval != 0.8:
-                        raise AssertionError(self.interval)
-                    if not callable(self.function):
-                        raise AssertionError(self.function)  # noqa: TRY004 - justification: Assert the test double contract under python -O.
-
             fake_uvicorn = types.SimpleNamespace(run=fake_run)
             with (
                 patch.dict(sys.modules, {"uvicorn": fake_uvicorn}),
                 patch.dict(os.environ, {"AETHERMESH_HOME": temp_dir}),
-                patch(
-                    "aethermesh_core.app_cli.threading.Timer",
-                    side_effect=lambda interval, function: FakeTimer(
-                        interval, function
-                    ),
-                ),
-                patch(
-                    "aethermesh_core.app_cli.webbrowser.open",
-                    side_effect=lambda url: browser_urls.append(url),
-                ),
+                patch("webbrowser.open") as open_browser,
             ):
                 with app_cli.console.capture() as warning_capture:
-                    app_cli._serve(host="0.0.0.0", port=7777, open_browser=True)
+                    app_cli._serve(host="0.0.0.0", port=7777)
+                output = warning_capture.get()
                 self.assertIn(
                     "Warning: non-localhost API binding is not the safe default.",
-                    warning_capture.get(),
+                    output,
+                )
+                self.assertIn(
+                    "Starting AetherMesh local API on http://0.0.0.0:7777", output
                 )
                 self.assertEqual(calls["host"], "0.0.0.0")
                 self.assertEqual(calls["port"], 7777)
                 self.assertEqual(calls["log_level"], "info")
-                self.assertEqual(len(timer_calls), 1)
-                self.assertEqual(timer_calls[0]["interval"], 0.8)
-                self.assertEqual(browser_urls, ["http://0.0.0.0:7777"])
                 with app_cli.console.capture() as localhost_capture:
-                    app_cli._serve(host="127.0.0.1", port=7280, open_browser=False)
+                    app_cli._serve(host="127.0.0.1", port=7280)
                 self.assertNotIn("non-localhost", localhost_capture.get())
                 self.assertEqual(calls["host"], "127.0.0.1")
                 with app_cli.console.capture() as localhost_name_capture:
-                    app_cli._serve(host="localhost", port=7281, open_browser=False)
+                    app_cli._serve(host="localhost", port=7281)
                 self.assertNotIn("non-localhost", localhost_name_capture.get())
                 self.assertEqual(calls["host"], "localhost")
                 self.assertEqual(calls["port"], 7281)
+                open_browser.assert_not_called()
 
             with (
                 patch(
@@ -5378,18 +5329,11 @@ class AppCliTests(unittest.TestCase):
                 ),
                 patch("aethermesh_core.app_cli._serve") as serve,
             ):
-                CliRunner(env={"AETHERMESH_HOME": temp_dir}).invoke(
+                result = CliRunner(env={"AETHERMESH_HOME": temp_dir}).invoke(
                     app_cli.app, ["node", "start"]
                 )
-                serve.assert_called_with(
-                    host="127.0.0.1", port=7280, open_browser=False
-                )
-                CliRunner(env={"AETHERMESH_HOME": temp_dir}).invoke(
-                    app_cli.app, ["ui", "--no-open"]
-                )
-                serve.assert_called_with(
-                    host="127.0.0.1", port=7280, open_browser=False
-                )
+                self.assertEqual(result.exit_code, 0, result.output)
+                serve.assert_called_once_with(host="127.0.0.1", port=7280)
 
             real_import = builtins.__import__
 
@@ -5406,9 +5350,11 @@ class AppCliTests(unittest.TestCase):
 
             with (
                 patch("builtins.__import__", side_effect=blocked_import),
-                self.assertRaisesRegex(Exception, "API/UI dependencies are missing"),
+                self.assertRaisesRegex(
+                    Exception, r"API dependencies are missing.*\.\[api\]"
+                ),
             ):
-                app_cli._serve(host="127.0.0.1", port=7280, open_browser=False)
+                app_cli._serve(host="127.0.0.1", port=7280)
 
 
 class LocalSafetyMetadataTests(unittest.TestCase):

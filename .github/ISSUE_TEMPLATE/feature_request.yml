@@ -38,7 +38,7 @@ body:
         - improves routing toward AER
         - improves expert/validator/aggregator foundations
         - improves packaging/release/update flow
-        - improves desktop/local UX without replacing core behavior
+        - improves headless SDK onboarding or local API diagnostics
         - improves tests/CI/quality gates
         - improves documentation/onboarding
     validations:
@@ -70,6 +70,6 @@ body:
     attributes:
       label: Non-goals and constraints
       description: Name what this should not do yet.
-      placeholder: No tokenomics, public networking, production consensus, or dashboard-first work.
+      placeholder: No tokenomics, unsupported networking claims, production consensus, or application UI.
     validations:
       required: false

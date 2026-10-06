@@ -1,4 +1,4 @@
-"""Local FastAPI app for the AetherMesh node dashboard."""
+"""Headless local FastAPI app for AetherMesh node integrations."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import Body, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from aethermesh_core.runtime_service import (
@@ -88,7 +88,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(service: NodeRuntimeService | None = None) -> FastAPI:
-    """Create the localhost API/dashboard app used by CLI and UI frontends."""
+    """Create the headless localhost API used by SDK integrations."""
 
     runtime_service = service or NodeRuntimeService.default()
     app = FastAPI(
@@ -379,92 +379,25 @@ def create_app(service: NodeRuntimeService | None = None) -> FastAPI:
         app.state.restart_requested = True
         return {"shutdown_requested": True, "restart_requested": True}
 
-    @app.get("/", response_class=HTMLResponse)
-    def dashboard() -> str:
-        return DASHBOARD_HTML
+    @app.get("/")
+    def service_index() -> dict[str, Any]:
+        """Describe the local service and its machine-readable entry points."""
+
+        health = runtime_service.health()
+        return {
+            "service": health["service"],
+            "version": health["version"],
+            "status": health["status"],
+            "network_mode": "local-only-no-p2p",
+            "endpoints": {
+                "health": "/health",
+                "status": "/api/status",
+                "node": "/api/node",
+                "capabilities": "/api/capabilities",
+                "jobs": "/api/jobs",
+                "network": "/api/network",
+                "openapi": "/openapi.json",
+            },
+        }
 
     return app
-
-
-DASHBOARD_HTML = """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AetherMesh Local Node</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    body { margin: 0; background: #090d14; color: #eef3ff; }
-    header { padding: 24px 28px; border-bottom: 1px solid #202838; background: #0d1420; }
-    h1 { margin: 0 0 6px; font-size: 24px; }
-    main { padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-    section { border: 1px solid #243044; border-radius: 14px; background: #101827; padding: 18px; box-shadow: 0 12px 30px rgba(0,0,0,.25); }
-    h2 { margin: 0 0 12px; font-size: 17px; color: #b9cdfb; }
-    dl { margin: 0; }
-    dt { color: #8ea0bd; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-top: 10px; }
-    dd { margin: 3px 0 0; word-break: break-word; }
-    button { margin-top: 14px; padding: 9px 12px; border: 0; border-radius: 10px; background: #6aa9ff; color: #06111f; font-weight: 700; cursor: pointer; }
-    pre { white-space: pre-wrap; background: #080c13; border: 1px solid #202838; border-radius: 10px; padding: 10px; max-height: 220px; overflow: auto; }
-    .muted { color: #9aa8bf; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>AetherMesh Local Node</h1>
-    <div class="muted">Localhost dashboard backed by the reusable Python node service and API.</div>
-    <button onclick="refreshAll()">Refresh</button>
-  </header>
-  <main>
-    <section><h2>Node</h2><dl id="node"></dl></section>
-    <section><h2>Network</h2><dl id="network"></dl></section>
-    <section><h2>Work</h2><dl id="work"></dl></section>
-    <section><h2>System</h2><dl id="system"></dl></section>
-    <section style="grid-column: 1 / -1"><h2>Logs / Events</h2><pre id="logs">Loading...</pre></section>
-  </main>
-<script>
-async function getJson(path) {
-  const response = await fetch(path, {cache: 'no-store'});
-  if (!response.ok) throw new Error(path + ' failed: ' + response.status);
-  return await response.json();
-}
-function dl(target, rows) {
-  const list = document.getElementById(target);
-  list.replaceChildren();
-  for (const [key, value] of rows) {
-    const term = document.createElement('dt');
-    term.textContent = key;
-    const description = document.createElement('dd');
-    description.textContent = value ?? 'unknown';
-    list.append(term, description);
-  }
-}
-async function refreshAll() {
-  const [status, peers, jobs, logs] = await Promise.all([
-    getJson('/api/status'), getJson('/api/peers'), getJson('/api/jobs'), getJson('/api/logs')
-  ]);
-  dl('node', [
-    ['Node ID', status.node_id], ['Node Name', status.node_name], ['Status', status.status],
-    ['Version', status.version],
-    ['Uptime', status.uptime_seconds === null ? 'not running' : status.uptime_seconds + 's'],
-    ['Config', status.config_path], ['Data directory', status.data_dir]
-  ]);
-  dl('network', [
-    ['Connected peers', peers.peer_count], ['Bootstrap', peers.bootstrap_status],
-    ['Peer list', peers.peers.length ? JSON.stringify(peers.peers) : 'No peers discovered']
-  ]);
-  dl('work', [
-    ['Current jobs', jobs.current.length], ['Completed jobs', jobs.completed.length],
-    ['Failed jobs', jobs.failed.length], ['Validation', jobs.validation_status]
-  ]);
-  dl('system', [
-    ['Platform', status.system.platform], ['Python', status.system.python_version],
-    ['CPU count', status.system.cpu_count], ['RAM total', status.system.memory_total_bytes || 'unknown'],
-    ['Data disk free', status.system.disk_data_path_free_bytes]
-  ]);
-  document.getElementById('logs').textContent = logs.events.length ? logs.events.join('\n') : 'No events yet.';
-}
-refreshAll().catch(err => { document.getElementById('logs').textContent = err.stack || String(err); });
-</script>
-</body>
-</html>
-"""

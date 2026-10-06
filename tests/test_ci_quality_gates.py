@@ -93,6 +93,38 @@ class LocalParityGateTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
 
+    def test_install_smoke_runs_public_example_in_isolated_interpreter(self) -> None:
+        module = load_quality_gates_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "dist").mkdir()
+            (root / "dist" / "sdk.whl").touch()
+            for returncodes, expected_calls in [
+                ([0, 0, 0], 3),
+                ([1], 1),
+                ([0, 2], 2),
+                ([0, 0, 3], 3),
+            ]:
+                with self.subTest(returncodes=returncodes):
+                    results = [
+                        mock.Mock(returncode=code, stdout="") for code in returncodes
+                    ]
+                    with (
+                        mock.patch.object(module, "ROOT", root),
+                        mock.patch.object(module.venv, "EnvBuilder"),
+                        mock.patch.object(module, "run", side_effect=results) as run,
+                    ):
+                        result = module.command_install_smoke(Namespace(dist="dist"))
+                    self.assertEqual(result, returncodes[-1])
+                    self.assertEqual(run.call_count, expected_calls)
+                    if expected_calls == 3:
+                        example_call = run.call_args_list[-1]
+                        self.assertEqual(
+                            example_call.args[0][1:],
+                            ["-I", str(root / "examples" / "sdk_smoke.py")],
+                        )
+                        self.assertNotEqual(example_call.kwargs["cwd"], root)
+
     def test_flaky_tests_runs_all_three_hash_seeds(self) -> None:
         module = load_quality_gates_module()
         completed = mock.Mock(returncode=0, stdout="ok\n")
@@ -108,40 +140,6 @@ class LocalParityGateTests(unittest.TestCase):
         self.assertTrue(
             all(call.args[0][-2:] == ["-q", "tests"] for call in run.call_args_list)
         )
-
-
-class DesktopReleaseWorkflowTests(unittest.TestCase):
-    def test_stage_step_normalizes_release_asset_names(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "desktop-release.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("artifact_system=MacOS", workflow)
-        self.assertIn("artifact_system=Windows", workflow)
-        self.assertIn("artifact_system=Linux", workflow)
-        self.assertIn("artifact_extension=dmg", workflow)
-        self.assertIn("artifact_extension=exe", workflow)
-        self.assertIn("artifact_extension=deb", workflow)
-        self.assertIn(
-            'release_asset="dist/release-upload/'
-            "AetherMesh-${RELEASE_VERSION}-${artifact_system}-"
-            '${AETHERMESH_TARGET_ARCH}.${artifact_extension}"',
-            workflow,
-        )
-        self.assertIn('cp "$artifact" "$release_asset"', workflow)
-        self.assertNotIn('cp "$artifact" dist/release-upload/', workflow)
-
-    def test_numbered_release_policy_is_encoded_in_workflow(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "desktop-release.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("retention-days: 14", workflow)
-        self.assertIn("publish_release:", workflow)
-        self.assertIn("environment: release", workflow)
-        self.assertIn("group: desktop-numbered-prerelease", workflow)
-        self.assertIn("TZ=America/New_York", workflow)
-        self.assertNotIn("gh release create", workflow)
 
 
 if __name__ == "__main__":

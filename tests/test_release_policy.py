@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 
 from scripts import release_policy
 
@@ -46,7 +45,7 @@ class ReleasePolicyTests(unittest.TestCase):
             release_policy.verify_required_checks(required, checks, statuses), []
         )
 
-    def test_release_check_policy_matches_live_required_contexts(self) -> None:
+    def test_release_check_policy_records_required_contexts(self) -> None:
         self.assertEqual(
             set(release_policy.required_checks_document()["contexts"]),
             {
@@ -73,14 +72,6 @@ class ReleasePolicyTests(unittest.TestCase):
                 "Python - Artifact Provenance Check",
             },
         )
-
-    def test_desktop_release_uses_versioned_policy_not_admin_api(self) -> None:
-        workflow = (
-            Path(__file__).resolve().parents[1]
-            / ".github/workflows/desktop-release.yml"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("branches/main/protection", workflow)
-        self.assertIn("required-checks > required.json", workflow)
 
 
 if __name__ == "__main__":

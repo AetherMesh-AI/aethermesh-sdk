@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portable local validation runner for AetherMesh Core.
+"""Portable local validation runner for AetherMesh SDK.
 
 The automation loop uses this script before opening a PR so local validation
 matches the repository's GitHub quality gates closely enough to catch failures
@@ -143,11 +143,6 @@ def _base_checks(base: str) -> list[Check]:
             "mypy",
             ("mypy", "--strict", "src", "scripts"),
             resources=frozenset({"mypy"}),
-        ),
-        Check(
-            "desktop tests",
-            ("npm", "run", "test:desktop"),
-            resources=frozenset({"node"}),
         ),
         Check(
             "test integrity",
