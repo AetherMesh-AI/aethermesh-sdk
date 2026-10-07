@@ -47,6 +47,13 @@ An application using the client does not listen, host models, train, seed files
 or start a background process. Running a service is an explicit operator choice;
 its default capability is status, and echo requires `--enable-echo`.
 
+Existing hardware-derived node IDs and four-word names can be explicitly shared
+with `--node-identity PATH` or the SDK's `load_node_profile`/`node_profile` APIs.
+The selected saved identity is reused without rewriting it. Optional
+`--share-hardware` adds coarse hardware categories; raw MAC addresses, device
+identifiers and private keys are never profile fields. Certificate pins still
+authenticate connections, and advertised names/hardware remain self-reported.
+
 Start with the [network foundation guide](docs/network-foundation.md) for
 certificate/pin configuration, the installed SDK example, protocol contracts,
 security limits and two-process verification. No privileged installer or extra

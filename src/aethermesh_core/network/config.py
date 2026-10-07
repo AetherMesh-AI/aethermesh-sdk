@@ -122,6 +122,7 @@ class PeerEndpoint:
     port: int
     server_name: str
     fingerprint: str
+    expected_node_id: str | None = None
 
     def __post_init__(self) -> None:
         _host(self.host, "host")
@@ -129,6 +130,10 @@ class PeerEndpoint:
         if type(self.port) is not int or not 1 <= self.port <= 65535:
             raise ValueError("port must be an integer from 1 to 65535")
         validate_fingerprint(self.fingerprint)
+        if self.expected_node_id is not None:
+            from .profile import validate_node_id
+
+            validate_node_id(self.expected_node_id)
 
 
 @dataclass(frozen=True)

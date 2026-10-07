@@ -17,6 +17,7 @@ from aethermesh_core.network.errors import (
     ProtocolError,
     RemoteError,
 )
+from aethermesh_core.network.profile import NodeProfile
 from aethermesh_core.network.protocol import close_writer, read_frame, write_frame
 from aethermesh_core.network.service import PeerService, _Session
 from tests.network_test_support import TestPKI
@@ -348,7 +349,7 @@ class PeerServiceLogicTests(unittest.IsolatedAsyncioTestCase):
             {**hello, "versions": []},
             {**hello, "versions": [1] * 17},
             {**hello, "versions": [True]},
-            {**hello, "versions": [2]},
+            {**hello, "versions": [3]},
         ):
             with self.subTest(message=message):
                 writer = _writer()
@@ -359,7 +360,9 @@ class PeerServiceLogicTests(unittest.IsolatedAsyncioTestCase):
                     ),
                     patch.object(self.service, "_send", new=AsyncMock()) as send,
                 ):
-                    await self.service._connection(asyncio.StreamReader(), writer)
+                    await self.service._connection(
+                        asyncio.StreamReader(), writer, "a" * 64
+                    )
                 send.assert_not_awaited()
                 writer.close.assert_called_once_with()
 
@@ -374,7 +377,7 @@ class PeerServiceLogicTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "aethermesh_core.network.service.read_frame", side_effect=wait_for_input
         ):
-            await self.service._connection(asyncio.StreamReader(), writer)
+            await self.service._connection(asyncio.StreamReader(), writer, "a" * 64)
         writer.close.assert_called_once_with()
         hello = {"type": "hello", "versions": [1], "project": self.service.project_id}
         request = _request(
@@ -387,7 +390,7 @@ class PeerServiceLogicTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.service, "_send", new=AsyncMock()) as send,
         ):
-            await self.service._connection(asyncio.StreamReader(), _writer())
+            await self.service._connection(asyncio.StreamReader(), _writer(), "a" * 64)
             self.assertEqual(send.await_count, 1)
         self.service.limits = Limits(max_requests=1)
         with (
@@ -397,8 +400,262 @@ class PeerServiceLogicTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.service, "_send", new=AsyncMock()) as send,
         ):
-            await self.service._connection(asyncio.StreamReader(), _writer())
+            await self.service._connection(asyncio.StreamReader(), _writer(), "a" * 64)
             self.assertEqual(send.call_args.args[1]["code"], "busy")
+
+    def test_profile_and_bindings_are_validated_without_io(self) -> None:
+        profile = NodeProfile("node-existing", "quiet-fox")
+        binding = {"a" * 64: "node-client"}
+        service = PeerService(
+            self.identity,
+            project_id="test",
+            allowed_peers=frozenset(binding),
+            node_profile=profile,
+            expected_peer_ids=binding,
+        )
+        self.assertIs(service.node_profile, profile)
+        with self.assertRaises(AttributeError):
+            service.node_profile = NodeProfile("replacement")
+        with self.assertRaises(AttributeError):
+            service.expected_peer_ids = {}
+        self.assertEqual(service.peers, ())
+        binding["a" * 64] = "replacement"
+        self.assertEqual(service.expected_peer_ids["a" * 64], "node-client")
+        with self.assertRaises(TypeError):
+            service.expected_peer_ids["a" * 64] = "replacement"
+        for options in (
+            {"node_profile": {}},
+            {"expected_peer_ids": [("a" * 64, "node-client")]},
+            {"expected_peer_ids": {"invalid": "node-client"}},
+            {"expected_peer_ids": {"a" * 64: "bad id"}},
+            {"expected_peer_ids": {"b" * 64: "node-client"}},
+        ):
+            with (
+                self.subTest(options=options),
+                self.assertRaises((TypeError, ValueError)),
+            ):
+                PeerService(
+                    self.identity,
+                    project_id="test",
+                    allowed_peers=frozenset({"a" * 64}),
+                    **options,
+                )
+
+    async def test_negotiation_selects_highest_common_and_legacy_shape(self) -> None:
+        for versions, selected in (([1], 1), ([1, 2], 2), ([99, 2, 1], 2)):
+            for shared in (False, True):
+                with self.subTest(versions=versions, shared=shared):
+                    profile = (
+                        NodeProfile("node-service", "quiet-fox") if shared else None
+                    )
+                    self.service = PeerService(
+                        self.identity,
+                        project_id="project.test-1",
+                        allowed_peers=frozenset({"a" * 64}),
+                        capabilities=frozenset({"echo"}),
+                        node_profile=profile,
+                    )
+                    session = _Session(_writer())
+                    hello = {
+                        "type": "hello",
+                        "versions": versions,
+                        "project": self.service.project_id,
+                    }
+                    messages = [hello, {"type": "identify", "node": None}]
+                    with (
+                        patch(
+                            "aethermesh_core.network.service.read_frame",
+                            new=AsyncMock(side_effect=messages),
+                        ),
+                        patch.object(self.service, "_send", new=AsyncMock()) as send,
+                    ):
+                        await self.service._negotiate(
+                            asyncio.StreamReader(), session, "a" * 64
+                        )
+                    welcome = {
+                        "type": "welcome",
+                        "version": selected,
+                        "project": self.service.project_id,
+                        "capabilities": ["echo", "status"],
+                    }
+                    if selected == 2:
+                        welcome["node"] = profile.to_dict() if profile else None
+                        self.assertEqual(send.call_args.args[1], {"type": "ready"})
+                    self.assertEqual(send.call_args_list[0].args[1], welcome)
+                    self.assertEqual(send.await_count, selected)
+                    peer = self.service.peers[-1]
+                    self.assertEqual(peer.fingerprint, "a" * 64)
+                    self.assertEqual(peer.protocol_version, selected)
+                    self.assertIsNone(peer.profile)
+                    self.assertFalse(peer.identity_pinned)
+                    status = await self.service._operate(
+                        "status", {}, protocol_version=selected
+                    )
+                    expected = {
+                        "protocol_version": selected,
+                        "capabilities": ["echo", "status"],
+                    }
+                    if selected == 2:
+                        expected["node"] = profile.to_dict() if profile else None
+                    self.assertEqual(status, expected)
+
+    async def test_binding_rejects_absent_mismatched_or_legacy_identity(self) -> None:
+        self.service = PeerService(
+            self.identity,
+            project_id="test",
+            allowed_peers=frozenset({"a" * 64}),
+            expected_peer_ids={"a" * 64: "expected-client"},
+        )
+        for version, profile in (
+            (1, None),
+            (2, None),
+            (2, NodeProfile("other", "expected-client").to_dict()),
+        ):
+            with self.subTest(version=version, profile=profile):
+                hello = {"type": "hello", "versions": [version], "project": "test"}
+                writer = _writer()
+                with (
+                    patch(
+                        "aethermesh_core.network.service.read_frame",
+                        new=AsyncMock(
+                            side_effect=[hello, {"type": "identify", "node": profile}]
+                        ),
+                    ),
+                    patch.object(self.service, "_send", new=AsyncMock()) as send,
+                    patch.object(self.service, "_receive", new=AsyncMock()) as receive,
+                ):
+                    await self.service._connection(
+                        asyncio.StreamReader(), writer, "a" * 64
+                    )
+                self.assertEqual(send.await_count, 0 if version == 1 else 1)
+                receive.assert_not_awaited()
+                self.assertEqual(self.service.peers, ())
+                writer.close.assert_called_once_with()
+
+    async def test_matching_identity_is_bound_to_its_own_certificate(self) -> None:
+        self.service = PeerService(
+            self.identity,
+            project_id="test",
+            allowed_peers=frozenset({"a" * 64, "b" * 64}),
+            expected_peer_ids={"a" * 64: "expected-client"},
+        )
+        profile = NodeProfile("expected-client", "same-name")
+        for pin in ("a" * 64, "b" * 64, "a" * 64):
+            session = _Session(_writer())
+            with (
+                patch(
+                    "aethermesh_core.network.service.read_frame",
+                    new=AsyncMock(
+                        side_effect=[
+                            {"type": "hello", "versions": [2, 1], "project": "test"},
+                            {"type": "identify", "node": profile.to_dict()},
+                        ]
+                    ),
+                ),
+                patch.object(self.service, "_send", new=AsyncMock()),
+            ):
+                await self.service._negotiate(asyncio.StreamReader(), session, pin)
+        self.assertEqual(len(self.service.peers), 3)
+        self.assertEqual(
+            [peer.fingerprint for peer in self.service.peers],
+            ["a" * 64, "b" * 64, "a" * 64],
+        )
+        self.assertEqual([peer.profile for peer in self.service.peers], [profile] * 3)
+        self.assertEqual(
+            [peer.identity_pinned for peer in self.service.peers], [True, False, True]
+        )
+        server = Mock(spec=asyncio.Server)
+        server.wait_closed = AsyncMock()
+        await self.service._shutdown(server)
+        self.assertEqual(self.service.peers, ())
+
+    async def test_invalid_identify_never_admits_requests(self) -> None:
+        hello = {
+            "type": "hello",
+            "versions": [2, 1],
+            "project": self.service.project_id,
+        }
+        for identify in (
+            {},
+            {"type": "identify"},
+            {"type": "identify", "node": None, "extra": True},
+            {"type": "status", "node": None},
+            {"type": "identify", "node": {}},
+            {
+                "type": "identify",
+                "node": {
+                    "node_id": "valid",
+                    "node_name": None,
+                    "hardware": None,
+                    "secret": "hidden",
+                },
+            },
+            _request(),
+        ):
+            with self.subTest(identify=identify):
+                with (
+                    patch(
+                        "aethermesh_core.network.service.read_frame",
+                        new=AsyncMock(side_effect=[hello, identify]),
+                    ),
+                    patch.object(self.service, "_send", new=AsyncMock()) as send,
+                    patch.object(self.service, "_receive", new=AsyncMock()) as receive,
+                ):
+                    await self.service._connection(
+                        asyncio.StreamReader(), _writer(), "a" * 64
+                    )
+                self.assertEqual(send.await_count, 1)
+                receive.assert_not_awaited()
+                self.assertEqual(self.service.peers, ())
+
+    async def test_application_deadline_bounds_identify_writes_and_entire_exchange(
+        self,
+    ) -> None:
+        self.service.limits = Limits(handshake_timeout=0.02, io_timeout=1)
+        hello = {
+            "type": "hello",
+            "versions": [2, 1],
+            "project": self.service.project_id,
+        }
+        identify = {"type": "identify", "node": None}
+        for stalled in ("identify", "welcome", "ready", "cumulative"):
+            reads = 0
+
+            async def read(
+                _reader: asyncio.StreamReader, stalled: str = stalled
+            ) -> dict[str, Any]:
+                nonlocal reads
+                reads += 1
+                if stalled == "identify" and reads == 2:
+                    await asyncio.sleep(3600)
+                if stalled == "cumulative":
+                    await asyncio.sleep(0.012)
+                return hello if reads == 1 else identify
+
+            async def send(
+                _session: _Session, message: dict[str, Any], stalled: str = stalled
+            ) -> None:
+                if message["type"] == stalled:
+                    await asyncio.sleep(3600)
+                if stalled == "cumulative":
+                    await asyncio.sleep(0.012)
+
+            with (
+                self.subTest(stalled=stalled),
+                patch("aethermesh_core.network.service.read_frame", side_effect=read),
+                patch.object(self.service, "_send", side_effect=send),
+                patch.object(self.service, "_receive", new=AsyncMock()) as receive,
+            ):
+                writer = _writer()
+                await asyncio.wait_for(
+                    self.service._connection(asyncio.StreamReader(), writer, "a" * 64),
+                    1,
+                )
+                receive.assert_not_awaited()
+                writer.close.assert_called_once_with()
+                self.assertEqual(self.service.peers, ())
+                if stalled == "cumulative":
+                    self.assertEqual(reads, 1)
 
 
 class PeerServiceTLSTests(unittest.IsolatedAsyncioTestCase):
@@ -531,3 +788,149 @@ class PeerServiceTLSTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ConnectionClosed):
             await read_frame(reader)
         self.assertFalse(self.service._connections)
+
+    async def connect_profile(
+        self, profile: NodeProfile | None, identity: TLSIdentity | None = None
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        reader, writer = await asyncio.open_connection(
+            *self.service.address,
+            ssl=(identity or self.pki.client.identity()).client_context(),
+            server_hostname="localhost",
+        )
+        self.addAsyncCleanup(close_writer, writer)
+        await write_frame(
+            writer, {"type": "hello", "versions": [2, 1], "project": "tls-test"}
+        )
+        welcome = await read_frame(reader)
+        self.assertEqual(
+            welcome,
+            {
+                "type": "welcome",
+                "version": 2,
+                "project": "tls-test",
+                "capabilities": ["echo", "status"],
+                "node": self.service.node_profile.to_dict()
+                if self.service.node_profile
+                else None,
+            },
+        )
+        await write_frame(
+            writer, {"type": "identify", "node": profile.to_dict() if profile else None}
+        )
+        self.assertEqual(await read_frame(reader), {"type": "ready"})
+        return reader, writer
+
+    async def test_real_tls_duplicate_claims_remain_distinct_authenticated_sessions(
+        self,
+    ) -> None:
+        await self.service.close()
+        first_pin = certificate_fingerprint(self.pki.client.certificate)
+        second_pin = certificate_fingerprint(self.pki.unauthorized.certificate)
+        server_profile = NodeProfile("service-node", "service-name")
+        client_profile = NodeProfile("duplicate-id", "duplicate-name")
+        self.service = PeerService(
+            self.pki.server.identity(),
+            project_id="tls-test",
+            allowed_peers=frozenset({first_pin, second_pin}),
+            capabilities=frozenset({"echo"}),
+            node_profile=server_profile,
+            expected_peer_ids={first_pin: "duplicate-id"},
+        )
+        await self.service.start()
+        self.addAsyncCleanup(self.service.close)
+        sessions = [
+            await self.connect_profile(client_profile),
+            await self.connect_profile(
+                client_profile, self.pki.unauthorized.identity()
+            ),
+            await self.connect_profile(client_profile),
+        ]
+        self.assertEqual(len(self.service.peers), 3)
+        self.assertEqual(
+            [peer.fingerprint for peer in self.service.peers],
+            [first_pin, second_pin, first_pin],
+        )
+        self.assertEqual(
+            [peer.profile for peer in self.service.peers], [client_profile] * 3
+        )
+        self.assertEqual(
+            [peer.identity_pinned for peer in self.service.peers], [True, False, True]
+        )
+        for reader, writer in sessions:
+            await write_frame(writer, _request())
+            self.assertEqual(
+                await read_frame(reader),
+                {
+                    "type": "result",
+                    "id": 1,
+                    "result": {
+                        "protocol_version": 2,
+                        "capabilities": ["echo", "status"],
+                        "node": server_profile.to_dict(),
+                    },
+                },
+            )
+        snapshot = self.service.peers
+        await close_writer(sessions[0][1])
+        async with asyncio.timeout(1):
+            while len(self.service.peers) == 3:
+                await asyncio.sleep(0)
+        self.assertEqual(len(self.service.peers), 2)
+        self.assertEqual(len(snapshot), 3)
+        self.assertEqual(
+            [peer.fingerprint for peer in self.service.peers], [second_pin, first_pin]
+        )
+        await self.service.close()
+        self.assertEqual(self.service.peers, ())
+        await self.service.start()
+        await self.connect_profile(client_profile)
+        self.assertEqual(len(self.service.peers), 1)
+
+    async def test_real_tls_legacy_and_v2_sessions_keep_independent_status_shapes(
+        self,
+    ) -> None:
+        await self.service.close()
+        self.service = PeerService(
+            self.pki.server.identity(),
+            project_id="tls-test",
+            allowed_peers=frozenset(
+                {certificate_fingerprint(self.pki.client.certificate)}
+            ),
+            capabilities=frozenset({"echo"}),
+            node_profile=NodeProfile("service-id", "service-name"),
+        )
+        await self.service.start()
+        self.addAsyncCleanup(self.service.close)
+        legacy = await self.connect()
+        modern = await self.connect_profile(None)
+        self.assertEqual([peer.protocol_version for peer in self.service.peers], [1, 2])
+        for (reader, writer), version in ((legacy, 1), (modern, 2)):
+            await write_frame(writer, _request())
+            status = (await read_frame(reader))["result"]
+            self.assertEqual(status["protocol_version"], version)
+            self.assertEqual("node" in status, version == 2)
+        await self.service.close()
+        self.assertEqual(self.service.peers, ())
+
+    async def test_real_tls_identify_is_required_before_status_or_registry_admission(
+        self,
+    ) -> None:
+        self.service.limits = Limits(handshake_timeout=0.04, io_timeout=1)
+        for send_request in (False, True):
+            with self.subTest(send_request=send_request):
+                reader, writer = await asyncio.open_connection(
+                    *self.service.address,
+                    ssl=self.pki.client.identity().client_context(),
+                    server_hostname="localhost",
+                )
+                self.addAsyncCleanup(close_writer, writer)
+                await write_frame(
+                    writer, {"type": "hello", "versions": [2, 1], "project": "tls-test"}
+                )
+                self.assertEqual((await read_frame(reader))["version"], 2)
+                self.assertEqual(self.service.peers, ())
+                if send_request:
+                    await write_frame(writer, _request())
+                with self.assertRaises(ConnectionClosed):
+                    await asyncio.wait_for(read_frame(reader), 1)
+                self.assertEqual(self.service.peers, ())

@@ -165,7 +165,7 @@ class NetworkProcessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(client.connected)
         self.assertEqual(client.capabilities, ("echo", "status"))
         status = await client.request("status")
-        self.assertEqual(status["protocol_version"], 1)
+        self.assertEqual(status["protocol_version"], 2)
         self.assertEqual(status["capabilities"], ["echo", "status"])
         self.assertEqual(
             await client.request("echo", {"text": "hello, independent peer 🌐"}),
@@ -299,7 +299,7 @@ class NetworkProcessTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         for hello in (
             {"type": "hello", "versions": [1], "project": "different-project"},
-            {"type": "hello", "versions": [2], "project": PROJECT},
+            {"type": "hello", "versions": [999], "project": PROJECT},
         ):
             with self.subTest(hello=hello):
                 reader, _ = await self.raw_peer(hello=hello)

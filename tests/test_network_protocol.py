@@ -49,7 +49,7 @@ class FrameTests(unittest.IsolatedAsyncioTestCase):
         writer = _writer()
         await write_frame(writer, message)
         frame = writer.write.call_args.args[0]
-        self.assertEqual(PROTOCOL_VERSION, 1)
+        self.assertEqual(PROTOCOL_VERSION, 2)
         self.assertEqual(MAX_FRAME_BYTES, 65536)
         self.assertEqual(struct.unpack("!I", frame[:4])[0], len(frame) - 4)
         reader = asyncio.StreamReader()

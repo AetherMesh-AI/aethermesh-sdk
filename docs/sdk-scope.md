@@ -22,14 +22,18 @@ foundations. An advertised capability is not proof of remote AI execution.
    Separate SDK version from protocol/schema and project release versions.
    Prove a minimal installed package works without a UI, daemon or model engine.
    Current: compatible Python exports and local execution coexist with a lightweight
-   `PeerClient`, version-1 negotiation and the optional `PeerService`/`aethermesh-peer`
+   `PeerClient`, version-1/2 negotiation and the optional `PeerService`/`aethermesh-peer`
    CLI. Their diagnostic operations share the same implementation and protocol.
 2. **Real peer connectivity.** Define replaceable discovery/session/transport
    boundaries, peer authentication, reconnects and protocol negotiation.
    Test two separate processes and then machines, with unavailable/malicious
    peers and bounded retry behavior. Current: explicit endpoints use mutually authenticated TLS 1.3, hostname
    validation and certificate pins, with bounded direct sessions tested in separate
-   processes. Automatic discovery, NAT traversal, relays, automatic reconnect and
+   processes. Version 2 can exchange explicitly selected saved node identities
+   and optional coarse hardware profiles, retaining certificate-keyed peer records
+   and optional certificate-to-node-ID bindings. Profiles are self-reported, not
+   attested hardware facts. Version 1 remains supported without profile sharing.
+   Automatic discovery, NAT traversal, relays, automatic reconnect and
    multi-machine deployment evidence remain future work.
 3. **Usable AI and job contracts.** Support capability discovery, input/output
    schema negotiation, inference requests, streaming, cancellation, timeouts,
@@ -58,7 +62,10 @@ foundations. An advertised capability is not proof of remote AI execution.
    prompts, credentials and unrelated application state out of peer metadata.
    Current: the new peer client starts no listener or contributor work. Service
    startup and echo opt-in are explicit; authenticated allowlists, bounded messages
-   and resource limits apply to this diagnostic protocol. Hosting/build/training/
+   and resource limits apply to this diagnostic protocol. Sharing a saved identity,
+   creating one, and adding coarse hardware metadata are separate explicit choices;
+   no raw MAC/serial/device data or local provenance is included in profiles.
+   Hosting/build/training/
    seeding services and their consent/privacy policies remain unimplemented.
 7. **App-neutral integration.** Provide optional adapters usable by Eidolon and
    other UIs/services. Network-side routing is distinct from application agents.

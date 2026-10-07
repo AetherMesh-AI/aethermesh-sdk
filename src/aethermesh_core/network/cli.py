@@ -12,6 +12,7 @@ from typing import NoReturn
 
 from .config import TLSIdentity
 from .errors import PeerError
+from .profile import NodeProfile, load_node_profile
 from .service import PeerService
 
 
@@ -37,33 +38,80 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=0)
     serve.add_argument("--enable-echo", action="store_true")
+    serve.add_argument(
+        "--node-identity",
+        type=Path,
+        help="share the ID and name from an explicitly selected saved node identity",
+    )
+    serve.add_argument(
+        "--create-node-identity",
+        action="store_true",
+        help="allow creation of the selected node identity if missing",
+    )
+    serve.add_argument(
+        "--share-hardware",
+        action="store_true",
+        help="include coarse hardware metadata from the selected identity",
+    )
+    serve.add_argument(
+        "--expect-peer-id",
+        action="append",
+        default=[],
+        metavar="SHA256=NODE_ID",
+        help="bind an allowed certificate fingerprint to an expected node ID",
+    )
     return parser
 
 
 async def _serve(arguments: argparse.Namespace) -> None:
-    service = PeerService(
-        TLSIdentity(
-            arguments.certificate, arguments.private_key, arguments.trust_store
-        ),
-        project_id=arguments.project,
-        allowed_peers=frozenset(arguments.allow_peer),
-        capabilities=frozenset({"echo"}) if arguments.enable_echo else frozenset(),
-    )
+    if (
+        arguments.create_node_identity or arguments.share_hardware
+    ) and arguments.node_identity is None:
+        raise ValueError(
+            "node identity creation and hardware sharing require a selected path"
+        )
+    expected_peer_ids: dict[str, str] = {}
+    for binding in arguments.expect_peer_id:
+        pin, separator, node_id = binding.partition("=")
+        if not separator or pin in expected_peer_ids:
+            raise ValueError("invalid or duplicate peer node identity binding")
+        expected_peer_ids[pin] = node_id
+
+    def configured_service(node_profile: NodeProfile | None = None) -> PeerService:
+        return PeerService(
+            TLSIdentity(
+                arguments.certificate, arguments.private_key, arguments.trust_store
+            ),
+            project_id=arguments.project,
+            allowed_peers=frozenset(arguments.allow_peer),
+            capabilities=frozenset({"echo"}) if arguments.enable_echo else frozenset(),
+            expected_peer_ids=expected_peer_ids,
+            node_profile=node_profile,
+        )
+
+    # Constructors are I/O-free. Preflight trust configuration before any explicit
+    # identity creation, then fix the profile for the lifetime of the final service.
+    service = configured_service()
+    node_profile = None
+    if arguments.node_identity is not None:
+        node_profile = load_node_profile(
+            arguments.node_identity,
+            create=arguments.create_node_identity,
+            include_hardware=arguments.share_hardware,
+        )
+        service = configured_service(node_profile)
     try:
         await service.start(arguments.host, arguments.port)
         host, port = service.address
-        print(
-            json.dumps(
-                {
-                    "host": host,
-                    "port": port,
-                    "project": service.project_id,
-                    "capabilities": sorted(service.capabilities),
-                },
-                sort_keys=True,
-            ),
-            flush=True,
-        )
+        readiness = {
+            "host": host,
+            "port": port,
+            "project": service.project_id,
+            "capabilities": sorted(service.capabilities),
+        }
+        if node_profile is not None:
+            readiness["node"] = node_profile.to_dict()
+        print(json.dumps(readiness, sort_keys=True), flush=True)
         await service.serve_forever()
     finally:
         await service.close()

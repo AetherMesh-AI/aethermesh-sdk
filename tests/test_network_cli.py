@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import io
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -13,6 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from aethermesh_core.network import cli
 from aethermesh_core.network.errors import AuthenticationError
+from aethermesh_core.network.profile import NodeProfile
 
 
 class PeerCLIParserTests(unittest.TestCase):
@@ -97,6 +99,10 @@ class PeerCLIAsyncTests(unittest.IsolatedAsyncioTestCase):
                     enable_echo=enable_echo,
                     host="127.0.0.1",
                     port=0,
+                    node_identity=None,
+                    create_node_identity=False,
+                    share_hardware=False,
+                    expect_peer_id=[],
                 )
                 output = io.StringIO()
                 with (
@@ -140,3 +146,110 @@ class PeerCLIAsyncTests(unittest.IsolatedAsyncioTestCase):
                 ):
                     await cli._serve(args)
                 service.close.assert_awaited_once_with()
+
+    async def test_explicit_profile_flags_load_selected_identity_and_readiness(
+        self,
+    ) -> None:
+        for create, hardware in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            with self.subTest(create=create, hardware=hardware):
+                extras = [
+                    "--node-identity",
+                    "selected.json",
+                    "--expect-peer-id",
+                    f"{'a' * 64}=client-node",
+                ]
+                if create:
+                    extras.append("--create-node-identity")
+                if hardware:
+                    extras.append("--share-hardware")
+                args = cli._parser().parse_args(PeerCLIParserTests().arguments(*extras))
+                profile = NodeProfile("existing-node", "saved-name")
+                service = Mock(
+                    project_id="test",
+                    capabilities=frozenset({"status"}),
+                    address=("127.0.0.1", 1234),
+                )
+                service.start = AsyncMock()
+                service.close = AsyncMock()
+                service.serve_forever = AsyncMock()
+                output = io.StringIO()
+                with (
+                    patch.object(
+                        cli, "load_node_profile", return_value=profile
+                    ) as load,
+                    patch.object(
+                        cli, "PeerService", return_value=service
+                    ) as constructor,
+                    redirect_stdout(output),
+                ):
+                    await cli._serve(args)
+                load.assert_called_once_with(
+                    Path("selected.json"), create=create, include_hardware=hardware
+                )
+                self.assertEqual(
+                    constructor.call_args.kwargs["expected_peer_ids"],
+                    {"a" * 64: "client-node"},
+                )
+                self.assertIs(constructor.call_args.kwargs["node_profile"], profile)
+                self.assertEqual(
+                    json.loads(output.getvalue())["node"], profile.to_dict()
+                )
+                service.close.assert_awaited_once_with()
+
+    async def test_invalid_identity_options_do_not_load_or_create_files(self) -> None:
+        for extras in (
+            ("--create-node-identity",),
+            ("--share-hardware",),
+            ("--expect-peer-id", "private-invalid"),
+            (
+                "--expect-peer-id",
+                "a" * 64 + "=one",
+                "--expect-peer-id",
+                "a" * 64 + "=two",
+            ),
+            ("--expect-peer-id", "b" * 64 + "=unallowed"),
+            ("--expect-peer-id", "a" * 64 + "="),
+            ("--expect-peer-id", "a" * 64 + "=private invalid"),
+            ("--expect-peer-id", "private-invalid=valid"),
+        ):
+            with self.subTest(extras=extras):
+                args = cli._parser().parse_args(PeerCLIParserTests().arguments(*extras))
+                with (
+                    patch.object(cli, "load_node_profile") as load,
+                    patch("asyncio.start_server") as start,
+                    self.assertRaises(ValueError),
+                ):
+                    await cli._serve(args)
+                load.assert_not_called()
+                start.assert_not_called()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "missing" / "identity.json"
+            args = cli._parser().parse_args(
+                PeerCLIParserTests().arguments(
+                    "--node-identity",
+                    str(path),
+                    "--create-node-identity",
+                    "--expect-peer-id",
+                    "b" * 64 + "=unallowed",
+                )
+            )
+            with self.assertRaises(ValueError):
+                await cli._serve(args)
+            self.assertFalse(path.parent.exists())
+
+    async def test_selected_missing_identity_never_creates_without_explicit_permission(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "missing" / "identity.json"
+            args = cli._parser().parse_args(
+                PeerCLIParserTests().arguments("--node-identity", str(path))
+            )
+            with self.assertRaises((OSError, ValueError)):
+                await cli._serve(args)
+            self.assertFalse(path.parent.exists())

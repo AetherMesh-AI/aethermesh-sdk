@@ -10,10 +10,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aethermesh_core.network import (
     AuthenticationError,
     ConnectionClosed,
+    HardwareProfile,
     Limits,
+    NodeProfile,
     PeerClient,
     PeerEndpoint,
     PeerError,
+    PeerInfo,
     ProtocolError,
     RemoteError,
     RequestTimeout,
@@ -95,7 +98,7 @@ class ClientContractTests(unittest.TestCase):
                 client._reply(message)
 
 
-class ClientLifecycleTests(unittest.IsolatedAsyncioTestCase):
+class ClientStreamTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.client = PeerClient(IDENTITY, project_id="test")
         self.reader = asyncio.StreamReader()
@@ -121,6 +124,8 @@ class ClientLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.pin_patch.stop()
         self.open_patch.stop()
 
+
+class ClientLifecycleTests(ClientStreamTestCase):
     async def test_connect_context_status_reply_and_close(self):
         self.assertFalse(self.client.connected)
         self.assertEqual(self.client.capabilities, ())
@@ -339,3 +344,155 @@ class ClientLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await self.client.request("status")
         self.assertIs(self.client._writer, replacement)
         self.assertTrue(self.client.connected)
+
+
+class ClientIdentityTests(ClientStreamTestCase):
+    async def connect_v2(self, *, local=None, remote=None, expected=None, ready=None):
+        self.client = PeerClient(IDENTITY, project_id="test", node_profile=local)
+        self.reader = asyncio.StreamReader()
+        self.open_mock.return_value = (self.reader, self.writer)
+        welcome = WELCOME | {"version": 2, "node": remote.to_dict() if remote else None}
+        self.reader.feed_data(frame(welcome))
+        self.reader.feed_data(frame({"type": "ready"} if ready is None else ready))
+        endpoint = PeerEndpoint("127.0.0.1", 12345, "localhost", PIN, expected)
+        await self.client.connect(endpoint)
+
+    async def test_mutual_profile_exchange_binds_configured_node_id(self):
+        local = NodeProfile("local-id", "cpu-mac-gpu-ram_aabbcc")
+        remote = NodeProfile(
+            "remote-id",
+            "other-four-word-name_112233",
+            HardwareProfile("aarch64", "32to63", True, "16to31"),
+        )
+        await self.connect_v2(local=local, remote=remote, expected=remote.node_id)
+        self.assertEqual(self.client.protocol_version, 2)
+        self.assertTrue(self.client.identity_announced)
+        self.assertEqual(self.client.peer_info, PeerInfo(PIN, 2, remote, True))
+        sent = [
+            json.loads(call.args[0][4:]) for call in self.writer.write.call_args_list
+        ]
+        self.assertEqual(
+            sent,
+            [
+                {"type": "hello", "versions": [2, 1], "project": "test"},
+                {"type": "identify", "node": local.to_dict()},
+            ],
+        )
+        task = asyncio.create_task(self.client.request("status"))
+        await asyncio.sleep(0)
+        expected_status = {
+            "protocol_version": 2,
+            "capabilities": ["status"],
+            "node": remote.to_dict(),
+        }
+        self.reader.feed_data(
+            frame({"type": "result", "id": 1, "result": expected_status})
+        )
+        self.assertEqual(await task, expected_status)
+        await self.client.close()
+        self.assertIsNone(self.client.peer_info)
+        self.assertIsNone(self.client.protocol_version)
+        self.assertFalse(self.client.identity_announced)
+
+    async def test_anonymous_v2_is_supported_without_implicit_identity(self):
+        await self.connect_v2()
+        self.assertEqual(self.client.peer_info, PeerInfo(PIN, 2, None, False))
+        self.assertFalse(self.client.identity_announced)
+        task = asyncio.create_task(self.client.request("status"))
+        await asyncio.sleep(0)
+        self.reader.feed_data(
+            frame(
+                {
+                    "type": "result",
+                    "id": 1,
+                    "result": {
+                        "protocol_version": 2,
+                        "capabilities": ["status"],
+                        "node": None,
+                    },
+                }
+            )
+        )
+        self.assertIsNone((await task)["node"])
+
+    async def test_legacy_fallback_never_sends_local_profile(self):
+        self.client = PeerClient(
+            IDENTITY, project_id="test", node_profile=NodeProfile("private-local-name")
+        )
+        await self.client.connect(ENDPOINT)
+        self.assertEqual(self.client.protocol_version, 1)
+        self.assertFalse(self.client.identity_announced)
+        self.assertEqual(self.client.peer_info, PeerInfo(PIN, 1, None))
+        self.assertEqual(len(self.writer.write.call_args_list), 1)
+        wire = b"".join(call.args[0] for call in self.writer.write.call_args_list)
+        self.assertNotIn(b"private-local-name", wire)
+
+    async def test_expected_node_id_fails_closed_for_legacy_and_missing_profile(self):
+        endpoint = PeerEndpoint("127.0.0.1", 12345, "localhost", PIN, "expected-node")
+        with self.assertRaises(AuthenticationError):
+            await self.client.connect(endpoint)
+        self.assertFalse(self.client.connected)
+        for profile in (None, NodeProfile("wrong-node")):
+            with self.subTest(profile=profile), self.assertRaises(AuthenticationError):
+                await self.connect_v2(remote=profile, expected="expected-node")
+            self.assertIsNone(self.client.peer_info)
+
+    async def test_invalid_ready_and_profile_are_rejected_before_connected(self):
+        with self.assertRaises(ProtocolError):
+            await self.connect_v2(ready={"type": "ready", "extra": 1})
+        self.assertIsNone(self.client.peer_info)
+        self.assertFalse(self.client.connected)
+        with self.assertRaises(ProtocolError):
+            self.client._peer(
+                WELCOME | {"version": 2, "node": {"node_id": "bad"}}, ENDPOINT
+            )
+        with self.assertRaises(ValueError):
+            PeerClient(IDENTITY, project_id="test", node_profile={})
+        for invalid in ("", "private/name", "x" * 129, True):
+            with self.subTest(value=invalid), self.assertRaises(ValueError):
+                PeerEndpoint("localhost", 123, "localhost", PIN, invalid)
+
+    async def test_profile_swap_in_status_closes_current_session(self):
+        await self.connect_v2(remote=NodeProfile("expected-node"))
+        task = asyncio.create_task(self.client.request("status"))
+        await asyncio.sleep(0)
+        self.reader.feed_data(
+            frame(
+                {
+                    "type": "result",
+                    "id": 1,
+                    "result": {
+                        "protocol_version": 2,
+                        "capabilities": ["status"],
+                        "node": NodeProfile("different-node").to_dict(),
+                    },
+                }
+            )
+        )
+        with self.assertRaises(ProtocolError):
+            await task
+        self.assertFalse(self.client.connected)
+        self.assertIsNone(self.client.peer_info)
+
+    async def test_status_contract_rejects_type_confusion_and_changes(self):
+        hardware = HardwareProfile("x86_64", "16to31", True, "under8")
+        profile = NodeProfile("remote", hardware=hardware)
+        peer = PeerInfo(PIN, 2, profile)
+        result = {
+            "protocol_version": 2,
+            "capabilities": ["status"],
+            "node": profile.to_dict(),
+        }
+        malformed = result | {
+            "node": profile.to_dict()
+            | {"hardware": hardware.to_dict() | {"gpu_available": 1}}
+        }
+        for changed in (
+            result | {"protocol_version": True},
+            result | {"protocol_version": 1},
+            result | {"capabilities": ["status", "echo"]},
+            result | {"extra": 1},
+            malformed,
+        ):
+            with self.subTest(result=changed), self.assertRaises(ProtocolError):
+                self.client._validate_status(changed, peer, ("status",))

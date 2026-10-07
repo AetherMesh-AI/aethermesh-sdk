@@ -23,7 +23,14 @@ from .errors import (
     RemoteError,
     RequestTimeout,
 )
-from .protocol import PROTOCOL_VERSION, Message, close_writer, read_frame, write_frame
+from .profile import NodeProfile, PeerInfo
+from .protocol import (
+    SUPPORTED_PROTOCOL_VERSIONS,
+    Message,
+    close_writer,
+    read_frame,
+    write_frame,
+)
 
 _ERRORS = {
     "invalid_request": "The peer rejected the request payload.",
@@ -49,8 +56,13 @@ class PeerClient:
         *,
         project_id: str,
         limits: Limits | None = None,
+        node_profile: NodeProfile | None = None,
     ) -> None:
         validate_project_id(project_id)
+        if node_profile is not None and not isinstance(node_profile, NodeProfile):
+            raise ValueError("node_profile must be a NodeProfile or None.")
+        self._node_profile = node_profile
+        self._peer_info: PeerInfo | None = None
         self._identity = identity
         self._project = project_id
         self._limits = limits or Limits()
@@ -71,6 +83,21 @@ class PeerClient:
     def capabilities(self) -> tuple[str, ...]:
         """Negotiated diagnostic operations, empty while disconnected."""
         return self._capabilities
+
+    @property
+    def peer_info(self) -> PeerInfo | None:
+        """Authenticated certificate identity and self-reported profile, if connected."""
+        return self._peer_info
+
+    @property
+    def protocol_version(self) -> int | None:
+        """Negotiated protocol; legacy v1 connections do not exchange profiles."""
+        return self._peer_info.protocol_version if self._peer_info is not None else None
+
+    @property
+    def identity_announced(self) -> bool:
+        """Whether this session completed explicit local profile announcement."""
+        return self.protocol_version == 2 and self._node_profile is not None
 
     async def connect(self, endpoint: PeerEndpoint) -> None:
         """Authenticate and negotiate, or fail without retaining a socket."""
@@ -97,14 +124,30 @@ class PeerClient:
                         writer,
                         {
                             "type": "hello",
-                            "versions": [PROTOCOL_VERSION],
+                            "versions": list(SUPPORTED_PROTOCOL_VERSIONS),
                             "project": self._project,
                         },
                     )
                     welcome = await read_frame(reader)
                     capabilities = self._welcome(welcome)
+                    info = self._peer(welcome, endpoint)
+                    if info.protocol_version == 2:
+                        await write_frame(
+                            writer,
+                            {
+                                "type": "identify",
+                                "node": self._node_profile.to_dict()
+                                if self._node_profile is not None
+                                else None,
+                            },
+                        )
+                        if await read_frame(reader) != {"type": "ready"}:
+                            raise ProtocolError(
+                                "The peer did not complete identity negotiation."
+                            )
                 self._writer = writer
                 self._capabilities = capabilities
+                self._peer_info = info
                 self._next_id = 1
                 self._receiver = asyncio.create_task(self._receive(reader, writer))
                 writer = None
@@ -119,11 +162,15 @@ class PeerClient:
                     await close_writer(writer)
 
     def _welcome(self, message: Message) -> tuple[str, ...]:
+        version = message.get("version")
+        fields = {"type", "version", "project", "capabilities"}
+        if version == 2:
+            fields.add("node")
         if (
-            set(message) != {"type", "version", "project", "capabilities"}
+            set(message) != fields
             or message["type"] != "welcome"
             or type(message["version"]) is not int
-            or message["version"] != PROTOCOL_VERSION
+            or version not in SUPPORTED_PROTOCOL_VERSIONS
             or message["project"] != self._project
         ):
             raise ProtocolError("The peer did not negotiate this project and protocol.")
@@ -137,6 +184,37 @@ class PeerClient:
         ):
             raise ProtocolError("The peer advertised invalid capabilities.")
         return tuple(capabilities)
+
+    @staticmethod
+    def _peer(message: Message, endpoint: PeerEndpoint) -> PeerInfo:
+        value = message.get("node")
+        profile = None if value is None else NodeProfile.from_dict(value)
+        expected = endpoint.expected_node_id
+        if expected is not None and (profile is None or profile.node_id != expected):
+            raise AuthenticationError(
+                "The peer did not provide the configured node identity."
+            )
+        return PeerInfo(
+            endpoint.fingerprint, message["version"], profile, expected is not None
+        )
+
+    @staticmethod
+    def _validate_status(
+        result: Message, peer: PeerInfo, capabilities: tuple[str, ...]
+    ) -> None:
+        if (
+            set(result) != {"protocol_version", "capabilities", "node"}
+            or type(result["protocol_version"]) is not int
+            or result["protocol_version"] != peer.protocol_version
+            or result["capabilities"] != list(capabilities)
+        ):
+            raise ProtocolError(
+                "The peer status does not match its negotiated identity and capabilities."
+            )
+        value = result["node"]
+        profile = None if value is None else NodeProfile.from_dict(value)
+        if profile != peer.profile:
+            raise ProtocolError("The peer changed its negotiated node profile.")
 
     async def request(
         self,
@@ -170,6 +248,8 @@ class PeerClient:
             raise PeerError("The client has reached its in-flight request limit.")
         pending = self._pending
         session_writer = self._writer
+        peer = self._peer_info
+        capabilities = self._capabilities
         request_id = 0
         future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
         try:
@@ -201,7 +281,14 @@ class PeerClient:
                             "payload": dict(payload or {}),
                         },
                     )
-                return await future
+                result = await future
+                if (
+                    operation == "status"
+                    and peer is not None
+                    and peer.protocol_version == 2
+                ):
+                    self._validate_status(result, peer, capabilities)
+                return result
         except TimeoutError as exc:
             await self._cancel_request(request_id, session_writer)
             raise RequestTimeout(
@@ -209,6 +296,10 @@ class PeerClient:
             ) from exc
         except asyncio.CancelledError:
             await self._cancel_request(request_id, session_writer)
+            raise
+        except ProtocolError:
+            if self._writer is session_writer:
+                await self.close()
             raise
         except (ConnectionClosed, OSError, asyncio.IncompleteReadError) as exc:
             if self._writer is session_writer:
@@ -262,6 +353,7 @@ class PeerClient:
             if self._writer is writer:
                 self._writer = None
                 self._capabilities = ()
+                self._peer_info = None
                 self._fail_pending(failure)
             await close_writer(writer)
 
@@ -297,6 +389,7 @@ class PeerClient:
         writer, self._writer = self._writer, None
         receiver, self._receiver = self._receiver, None
         self._capabilities = ()
+        self._peer_info = None
         self._fail_pending(ConnectionClosed("The peer session was closed."))
         if receiver is not None:
             receiver.cancel()

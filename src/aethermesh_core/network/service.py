@@ -11,8 +11,10 @@ bounded expiry. Authenticated application sessions are always drained first.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial
+from types import MappingProxyType
 from typing import Any, Self
 
 from .config import (
@@ -23,7 +25,8 @@ from .config import (
     validate_project_id,
 )
 from .errors import PeerError, ProtocolError, RemoteError
-from .protocol import PROTOCOL_VERSION, close_writer, read_frame, write_frame
+from .profile import NodeProfile, PeerInfo, validate_node_id
+from .protocol import SUPPORTED_PROTOCOL_VERSIONS, close_writer, read_frame, write_frame
 
 _DEFAULT_LIMITS = Limits()
 
@@ -36,6 +39,7 @@ class _Session:
     write_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_id: int = 0
     request_count: int = 0
+    protocol_version: int = 1
 
 
 class PeerService:
@@ -54,6 +58,8 @@ class PeerService:
         allowed_peers: frozenset[str],
         capabilities: frozenset[str] = frozenset(),
         limits: Limits = _DEFAULT_LIMITS,
+        node_profile: NodeProfile | None = None,
+        expected_peer_ids: Mapping[str, str] | None = None,
     ) -> None:
         validate_project_id(project_id)
         if not isinstance(allowed_peers, frozenset):
@@ -65,6 +71,23 @@ class PeerService:
             "echo",
         }:
             raise ValueError("unsupported peer capability")
+        if node_profile is not None and not isinstance(node_profile, NodeProfile):
+            raise TypeError("node_profile must be a NodeProfile or None")
+        if expected_peer_ids is not None and not isinstance(expected_peer_ids, Mapping):
+            raise TypeError(
+                "expected_peer_ids must map allowed fingerprints to node IDs"
+            )
+        bindings = dict(expected_peer_ids or {})
+        for pin, node_id in bindings.items():
+            validate_fingerprint(pin)
+            validate_node_id(node_id)
+            if pin not in allowed_peers:
+                raise ValueError(
+                    "node identity bindings require an allowed fingerprint"
+                )
+        self._node_profile = node_profile
+        self._expected_peer_ids: Mapping[str, str] = MappingProxyType(bindings)
+        self._peers: dict[asyncio.StreamWriter, PeerInfo] = {}
         self.identity = identity
         self.project_id = project_id
         self.capabilities = frozenset({"status"}) | capabilities
@@ -78,6 +101,25 @@ class PeerService:
         self._stopped = asyncio.Event()
         self._generation = object()
         self._shutdown_task: asyncio.Task[None] | None = None
+
+    @property
+    def node_profile(self) -> NodeProfile | None:
+        """The immutable, explicitly shared profile configured for this service."""
+        return self._node_profile
+
+    @property
+    def expected_peer_ids(self) -> Mapping[str, str]:
+        """A read-only snapshot of configured certificate-to-node-ID bindings."""
+        return self._expected_peer_ids
+
+    @property
+    def peers(self) -> tuple[PeerInfo, ...]:
+        """Authenticated active sessions; claimed identities never establish trust.
+
+        Duplicate node IDs and names remain separate entries, including multiple
+        sessions authenticated by the same certificate. Entries are not persisted.
+        """
+        return tuple(self._peers.values())
 
     @property
     def address(self) -> tuple[str, int]:
@@ -130,14 +172,15 @@ class PeerService:
             writer.transport.abort()
             return
         try:
-            authenticated = peer_fingerprint(writer) in self.allowed_peers
+            fingerprint = peer_fingerprint(writer)
         except PeerError:
-            authenticated = False
-        if not authenticated:
+            writer.transport.abort()
+            return
+        if fingerprint not in self.allowed_peers:
             writer.transport.abort()
             return
         self._writers.add(writer)
-        task = asyncio.create_task(self._connection(reader, writer))
+        task = asyncio.create_task(self._connection(reader, writer, fingerprint))
         self._connections.add(task)
         task.add_done_callback(self._connections.discard)
 
@@ -148,34 +191,72 @@ class PeerService:
             async with session.write_lock:
                 await write_frame(session.writer, message)
 
+    async def _negotiate(
+        self, reader: asyncio.StreamReader, session: _Session, fingerprint: str
+    ) -> None:
+        hello = await read_frame(reader)
+        versions = hello.get("versions")
+        if (
+            set(hello) != {"type", "versions", "project"}
+            or hello["type"] != "hello"
+            or hello["project"] != self.project_id
+            or not isinstance(versions, list)
+            or not 1 <= len(versions) <= 16
+            or any(type(version) is not int for version in versions)
+        ):
+            raise ProtocolError("invalid peer negotiation")
+        common = set(versions).intersection(SUPPORTED_PROTOCOL_VERSIONS)
+        if not common:
+            raise ProtocolError("unsupported peer protocol version")
+        session.protocol_version = max(common)
+        expected = self.expected_peer_ids.get(fingerprint)
+        if session.protocol_version == 1 and expected is not None:
+            raise ProtocolError(
+                "peer node identity binding requires protocol version 2"
+            )
+        welcome: dict[str, Any] = {
+            "type": "welcome",
+            "version": session.protocol_version,
+            "project": self.project_id,
+            "capabilities": sorted(self.capabilities),
+        }
+        profile = None
+        if session.protocol_version == 2:
+            welcome["node"] = self.node_profile.to_dict() if self.node_profile else None
+        await self._send(session, welcome)
+        if session.protocol_version == 2:
+            identify = await read_frame(reader)
+            if set(identify) != {"type", "node"} or identify["type"] != "identify":
+                raise ProtocolError("invalid peer identity exchange")
+            if identify["node"] is not None:
+                profile = NodeProfile.from_dict(identify["node"])
+            if expected is not None and (
+                profile is None or profile.node_id != expected
+            ):
+                raise ProtocolError(
+                    "peer node identity does not match its configured binding"
+                )
+        self._peers[session.writer] = PeerInfo(
+            fingerprint,
+            session.protocol_version,
+            profile,
+            identity_pinned=expected is not None,
+        )
+        if session.protocol_version == 2:
+            await self._send(session, {"type": "ready"})
+
     async def _connection(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        fingerprint: str,
     ) -> None:
         session = _Session(writer)
         try:
-            hello = await asyncio.wait_for(
-                read_frame(reader), self.limits.handshake_timeout
-            )
-            versions = hello.get("versions")
-            if (
-                set(hello) != {"type", "versions", "project"}
-                or hello["type"] != "hello"
-                or hello["project"] != self.project_id
-                or not isinstance(versions, list)
-                or not 1 <= len(versions) <= 16
-                or any(type(version) is not int for version in versions)
-                or PROTOCOL_VERSION not in versions
-            ):
-                raise ProtocolError("invalid peer negotiation")
-            await self._send(
-                session,
-                {
-                    "type": "welcome",
-                    "version": PROTOCOL_VERSION,
-                    "project": self.project_id,
-                    "capabilities": sorted(self.capabilities),
-                },
-            )
+            # The full application exchange, including both outbound drains, is
+            # bounded by one deadline. No requests are processed before readiness.
+            async with asyncio.timeout(self.limits.handshake_timeout):
+                await self._negotiate(reader, session, fingerprint)
             while True:
                 message = await asyncio.wait_for(
                     read_frame(reader), self.limits.io_timeout
@@ -187,6 +268,7 @@ class PeerService:
             # paths. A failed transport/negotiation has no trusted response ID.
             pass
         finally:
+            self._peers.pop(writer, None)
             requests = list(session.requests.values())
             for request in requests:
                 request.cancel()
@@ -263,7 +345,9 @@ class PeerService:
         payload: dict[str, Any],
     ) -> None:
         try:
-            result = await self._operate(operation, payload)
+            result = await self._operate(
+                operation, payload, protocol_version=session.protocol_version
+            )
         except RemoteError as exc:
             response = {
                 "type": "error",
@@ -278,16 +362,23 @@ class PeerService:
         session.responding.add(request_id)
         await self._send(session, response)
 
-    async def _operate(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _operate(
+        self, operation: str, payload: dict[str, Any], *, protocol_version: int = 1
+    ) -> dict[str, Any]:
         if operation not in self.capabilities:
             raise RemoteError("unsupported_operation", "operation is not enabled")
         if operation == "status":
             if payload:
                 raise RemoteError("invalid_request", "status payload must be empty")
-            return {
-                "protocol_version": PROTOCOL_VERSION,
+            status: dict[str, Any] = {
+                "protocol_version": protocol_version,
                 "capabilities": sorted(self.capabilities),
             }
+            if protocol_version == 2:
+                status["node"] = (
+                    self.node_profile.to_dict() if self.node_profile else None
+                )
+            return status
         text = payload.get("text")
         delay = payload.get("delay_ms", 0)
         if (
@@ -310,6 +401,7 @@ class PeerService:
         # block, so retain independent ownership of every admitted transport.
         await asyncio.gather(*(close_writer(writer) for writer in self._writers))
         self._writers.clear()
+        self._peers.clear()
         await server.wait_closed()
         self._stopped.set()
 

@@ -14,7 +14,8 @@ from typing import Any, NoReturn
 
 from .errors import ConnectionClosed, ProtocolError
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+SUPPORTED_PROTOCOL_VERSIONS = (2, 1)
 MAX_FRAME_BYTES = 65536
 _MAX_NESTING = 16
 _CLOSE_TIMEOUT = 2.0

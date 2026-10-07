@@ -14,21 +14,34 @@ from .errors import (
     RemoteError,
     RequestTimeout,
 )
-from .protocol import PROTOCOL_VERSION
+from .profile import (
+    HardwareProfile,
+    NodeProfile,
+    PeerInfo,
+    hardware_profile,
+    load_node_profile,
+)
+from .protocol import PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
 from .service import PeerService
 
 __all__ = [
     "PROTOCOL_VERSION",
+    "SUPPORTED_PROTOCOL_VERSIONS",
     "AuthenticationError",
     "ConnectionClosed",
+    "HardwareProfile",
     "Limits",
+    "NodeProfile",
     "PeerClient",
     "PeerEndpoint",
     "PeerError",
+    "PeerInfo",
     "PeerService",
     "ProtocolError",
     "RemoteError",
     "RequestTimeout",
     "TLSIdentity",
     "certificate_fingerprint",
+    "hardware_profile",
+    "load_node_profile",
 ]
