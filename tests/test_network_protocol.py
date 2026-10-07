@@ -208,10 +208,63 @@ class FrameTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_shutdown_aborts_and_propagates(self) -> None:
         writer = _writer()
-        writer.wait_closed.side_effect = asyncio.CancelledError
+        waiting = asyncio.Event()
+
+        async def blocked() -> None:
+            waiting.set()
+            await asyncio.Event().wait()
+
+        writer.wait_closed.side_effect = blocked
+        closing = asyncio.create_task(close_writer(writer))
+        await waiting.wait()
+        closing.cancel()
         with self.assertRaises(asyncio.CancelledError):
-            await close_writer(writer)
+            await closing
         writer.transport.abort.assert_called_once_with()
+
+    async def test_cancelled_shared_transport_waiter_does_not_cancel_retry(
+        self,
+    ) -> None:
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport = Mock(spec=asyncio.Transport)
+        writer = asyncio.StreamWriter(
+            transport, protocol, reader, asyncio.get_running_loop()
+        )
+        waiting = asyncio.Event()
+        wait_closed = writer.wait_closed
+
+        async def wait_for_transport() -> None:
+            waiting.set()
+            await wait_closed()
+
+        with patch.object(writer, "wait_closed", side_effect=wait_for_transport):
+            closing = asyncio.create_task(close_writer(writer))
+            await waiting.wait()
+            closing.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await closing
+            transport.abort.assert_called_once_with()
+            protocol.connection_lost(None)
+            await close_writer(writer)
+        transport.close.assert_called_with()
+        self.assertEqual(transport.abort.call_count, 2)
+
+    async def test_timed_out_shared_transport_waiter_does_not_cancel_retry(
+        self,
+    ) -> None:
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport = Mock(spec=asyncio.Transport)
+        writer = asyncio.StreamWriter(
+            transport, protocol, reader, asyncio.get_running_loop()
+        )
+        with patch("aethermesh_core.network.protocol._CLOSE_TIMEOUT", 0.001):
+            await asyncio.wait_for(close_writer(writer), timeout=1)
+        transport.abort.assert_called_once_with()
+        protocol.connection_lost(None)
+        await close_writer(writer)
+        self.assertEqual(transport.abort.call_count, 2)
 
     async def test_cancellation_is_not_reclassified_as_network_failure(self) -> None:
         reader = Mock()

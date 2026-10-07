@@ -104,7 +104,8 @@ cleanup or for initial SDK connectivity.
 ### Keep and develop
 
 - `network/`: versioned direct-peer contracts, explicit TLS trust, lightweight
-  client and optional standalone service; status/echo only, no legacy job execution.
+  client and optional standalone service; status/echo by default, an explicitly
+  budgeted tiny-router evaluation pilot, and no legacy job execution.
 
 - `messages.py`, `job_envelope.py`, `job_result_schema.py`, `job_failure_schema.py`,
   `capability_record.py`, `expert_manifest.py`: local contracts and validation.
@@ -171,8 +172,11 @@ cleanup and are not an authoritative description of the current tree.
 3. Map existing job schemas into versioned inference/stream contracts and add one
    real provider integration without advertising unimplemented capabilities.
 4. Specify project manifests and transfer verification before update distribution.
-5. Add opt-in build/training interfaces only when an implementing service exists.
+5. The [verified tiny-router pilot](verified-learning-pilot.md) now connects an
+   external example trainer to explicitly budgeted evaluator peers and local
+   promotion policy. General build/training services remain future work.
 
 Each slice needs runnable evidence and its own security/compatibility review.
-The current foundation implements only bounded direct-peer diagnostics. It does
-not claim the remaining slices or production Internet hardening.
+The default foundation remains bounded direct-peer diagnostics. An explicitly
+opted-in tiny-router pilot adds numeric evaluation and local governance; neither
+claims the remaining slices or production Internet hardening.

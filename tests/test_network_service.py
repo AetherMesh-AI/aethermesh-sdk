@@ -211,6 +211,49 @@ class PeerServiceLogicTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.service._connections)
         self.assertTrue(self.service._stopped.is_set())
 
+    async def test_shutdown_can_cancel_connection_already_closing_its_writer(
+        self,
+    ) -> None:
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport = Mock(spec=asyncio.Transport)
+        writer = asyncio.StreamWriter(
+            transport, protocol, reader, asyncio.get_running_loop()
+        )
+        transport.abort.side_effect = lambda: protocol.connection_lost(None)
+        server = Mock(spec=asyncio.Server)
+        server.wait_closed = AsyncMock()
+        self.service._server = server
+        self.service._closing = False
+        waiting = asyncio.Event()
+        wait_closed = writer.wait_closed
+
+        async def wait_for_transport() -> None:
+            waiting.set()
+            await wait_closed()
+
+        with (
+            patch.object(writer, "wait_closed", side_effect=wait_for_transport),
+            patch(
+                "aethermesh_core.network.service.peer_fingerprint",
+                return_value="a" * 64,
+            ),
+            patch.object(
+                self.service, "_negotiate", side_effect=ConnectionClosed("peer left")
+            ),
+        ):
+            self.service._accept(reader, writer, generation=self.service._generation)
+            connection = next(iter(self.service._connections))
+            await waiting.wait()
+            await asyncio.wait_for(self.service.close(), timeout=1)
+        self.assertTrue(connection.cancelled())
+        self.assertEqual(transport.abort.call_count, 2)
+        server.wait_closed.assert_awaited_once_with()
+        self.assertFalse(self.service._writers)
+        self.assertFalse(self.service._connections)
+        self.assertTrue(self.service._stopped.is_set())
+        await self.service.close()
+
     async def test_status_echo_and_operation_errors(self) -> None:
         self.assertEqual(
             await self.service._operate("status", {}),

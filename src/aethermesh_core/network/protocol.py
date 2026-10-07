@@ -114,4 +114,9 @@ async def close_writer(writer: asyncio.StreamWriter) -> None:
         writer.transport.abort()
     except asyncio.CancelledError:
         writer.transport.abort()
-        raise
+        # StreamWriter shares one protocol close future. An earlier cancelled
+        # close can leave that future cancelled even for a new cleanup caller.
+        # Only propagate cancellation requested on this caller's own task.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise

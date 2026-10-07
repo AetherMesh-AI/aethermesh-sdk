@@ -21,10 +21,12 @@ The `aethermesh_core` namespace is retained for compatibility. Today it contains
 - Deterministic reference scheduling, execution and simulations
 - Local validation, hashes, receipts, lineage and contribution accounting
 - A localhost JSON API and diagnostic CLI over the reusable runtime service
+- Pinned, mutually authenticated TLS direct-peer sessions with explicit trust
+- An opt-in [verified tiny-router learning pilot](verified-learning-pilot.md)
 
 These pieces exercise SDK contracts without claiming a distributed deployment.
-There is no authenticated P2P connection/discovery layer, remote inference
-stream, distributed release authority or production consensus.
+Authenticated direct connections exist; public discovery, remote inference
+streaming, distributed release authority and production consensus do not.
 
 ## Intended boundaries
 
@@ -70,8 +72,9 @@ and authorized publishers, even if they share a transport.
 
 Keep the current unauthenticated development API on localhost. Test schema
 rejection, tampered results, missing attribution and invalid state transitions.
-Future network work must add threat-modelled authentication, authorization,
-privacy and resource controls before exposure beyond a trusted local boundary.
+Direct peers have explicit TLS authentication and bounded resource controls.
+Further deployment threat modelling, privacy controls and DoS mitigation are
+required before exposure beyond a trusted development boundary.
 A local receipt is evidence of a local check, not distributed consensus.
 
 Connecting for AI use or updates must not silently enable training, hosting,
