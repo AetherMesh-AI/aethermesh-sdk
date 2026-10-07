@@ -131,20 +131,7 @@ class PeerClient:
                     welcome = await read_frame(reader)
                     capabilities = self._welcome(welcome)
                     info = self._peer(welcome, endpoint)
-                    if info.protocol_version == 2:
-                        await write_frame(
-                            writer,
-                            {
-                                "type": "identify",
-                                "node": self._node_profile.to_dict()
-                                if self._node_profile is not None
-                                else None,
-                            },
-                        )
-                        if await read_frame(reader) != {"type": "ready"}:
-                            raise ProtocolError(
-                                "The peer did not complete identity negotiation."
-                            )
+                    await self._announce_identity(reader, writer, info.protocol_version)
                 self._writer = writer
                 self._capabilities = capabilities
                 self._peer_info = info
@@ -160,6 +147,31 @@ class PeerClient:
             finally:
                 if writer is not None:
                     await close_writer(writer)
+
+    async def _announce_identity(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        version: int,
+    ) -> None:
+        """Finish v2 identity exchange inside the caller's handshake deadline.
+
+        Keeping the legacy return explicit also makes this protocol branch
+        independent of interpreter-specific async-context exit instructions.
+        """
+        if version == 1:
+            return
+        await write_frame(
+            writer,
+            {
+                "type": "identify",
+                "node": self._node_profile.to_dict()
+                if self._node_profile is not None
+                else None,
+            },
+        )
+        if await read_frame(reader) != {"type": "ready"}:
+            raise ProtocolError("The peer did not complete identity negotiation.")
 
     def _welcome(self, message: Message) -> tuple[str, ...]:
         version = message.get("version")

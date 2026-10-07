@@ -347,6 +347,20 @@ class ClientLifecycleTests(ClientStreamTestCase):
 
 
 class ClientIdentityTests(ClientStreamTestCase):
+    async def test_legacy_announcement_returns_without_reading_or_writing(self):
+        self.client = PeerClient(
+            IDENTITY, project_id="test", node_profile=NodeProfile("private-local-name")
+        )
+        with (
+            patch("aethermesh_core.network.client.read_frame", AsyncMock()) as read,
+            patch("aethermesh_core.network.client.write_frame", AsyncMock()) as write,
+        ):
+            await self.client._announce_identity(self.reader, self.writer, 1)
+        read.assert_not_awaited()
+        write.assert_not_awaited()
+        self.assertIsNone(self.client.peer_info)
+        self.assertFalse(self.client.identity_announced)
+
     async def connect_v2(self, *, local=None, remote=None, expected=None, ready=None):
         self.client = PeerClient(IDENTITY, project_id="test", node_profile=local)
         self.reader = asyncio.StreamReader()
