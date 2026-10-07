@@ -4,11 +4,13 @@ AetherMesh SDK is the headless foundation for applications connecting to a
 future decentralized AetherMesh AI network. Eidolon can use it as an optional
 provider adapter; other applications can use it independently.
 
-**Current status: local prototype, no public P2P network.** This repository has
-reusable Python contracts, deterministic reference execution, file/in-memory
-transport, validation, provenance and a localhost development API. It does not
-yet provide authenticated peer discovery, remote AI inference, streaming,
-network cancellation or peer-distributed releases.
+**Current status: authenticated direct-peer foundation, no public network.**
+The SDK and optional headless service share a versioned peer protocol. Explicitly
+configured peers can exchange bounded status and opt-in echo requests over mutual
+TLS, with cancellation and timeouts. These are connectivity diagnostics, not AI
+inference. Automatic discovery, NAT traversal, relays, streaming inference and
+peer-distributed releases are not implemented. Existing local contracts, reference
+execution, validation, provenance and the localhost development API remain.
 
 The Python distribution remains `aethermesh` and the import path remains
 `aethermesh_core` for compatibility. Neither is being silently renamed as part
@@ -37,6 +39,26 @@ assert validation.valid
 This is an in-process reference job, not a request to a remote AI network.
 Run the complete no-network example with `python examples/sdk_smoke.py`.
 
+## SDK and optional peer service
+
+The base install includes `aethermesh_core.network.PeerClient` and
+`aethermesh-peer serve`, backed by the same protocol and trust implementation.
+An application using the client does not listen, host models, train, seed files
+or start a background process. Running a service is an explicit operator choice;
+its default capability is status, and echo requires `--enable-echo`.
+
+Existing hardware-derived node IDs and four-word names can be explicitly shared
+with `--node-identity PATH` or the SDK's `load_node_profile`/`node_profile` APIs.
+The selected saved identity is reused without rewriting it. Optional
+`--share-hardware` adds coarse hardware categories; raw MAC addresses, device
+identifiers and private keys are never profile fields. Certificate pins still
+authenticate connections, and advertised names/hardware remain self-reported.
+
+Start with the [network foundation guide](docs/network-foundation.md) for
+certificate/pin configuration, the installed SDK example, protocol contracts,
+security limits and two-process verification. No privileged installer or extra
+network dependency is required.
+
 ## Optional local API and diagnostic CLI
 
 ```bash
@@ -60,7 +82,7 @@ Read [SDK scope and objectives](docs/sdk-scope.md) for implemented, partial and
 planned capabilities and the exact ownership boundaries. In brief:
 
 - Stable, versioned application-facing APIs and protocol contracts
-- Future peer discovery, authenticated connections and capability negotiation
+- Authenticated direct connections and capability negotiation; discovery planned
 - AI/job submission, streaming, cancellation and predictable failure handling
 - Validated results, attribution, lineage and content-addressed artifact transfer
 - Project-isolated source/build/release metadata and verification interfaces
@@ -82,10 +104,13 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m unittest discover -s tests -v
 
 The fast gate checks tests, 100% branch coverage, lint/format/type checks and
 repository policy. `scripts/full_test.py --list` lists the additional full gates.
-No desktop application or Electron installation is required.
+No desktop application or Electron installation is required. Real-network tests
+use loopback sockets and the OpenSSL executable to create temporary test identities;
+they do not install certificates or modify the operating system trust store.
 
 ## Repository layout
 
+- `src/aethermesh_core/network/`: shared peer protocol, SDK client and opt-in service
 - `src/aethermesh_core/`: compatible Python imports, contracts and local foundations
 - `examples/`: deterministic manifests, schema fixtures and SDK usage example
 - `docs/`: SDK boundaries, reference architecture and prototype contracts

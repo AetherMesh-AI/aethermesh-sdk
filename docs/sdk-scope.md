@@ -2,14 +2,18 @@
 
 ## Product boundary
 
-The SDK connects an application to a future decentralized AetherMesh network.
+The SDK and optional standalone service share one headless peer core. The SDK
+connects an application to explicitly configured peers and, in future, a
+decentralized AetherMesh network.
 It is usable independently of Eidolon. An Eidolon integration is optional, and
 Eidolon's other AI providers must continue to work without this SDK.
 
-There is **no current public P2P implementation or deployed network** in this
-repository. Local simulations, file-backed inboxes and localhost endpoints are
-reference foundations. An advertised local capability is not proof that a peer
-can execute a remote AI request.
+There is **no deployed public network, discovery, NAT traversal or relay** in
+this repository. `aethermesh_core.network` implements authenticated direct peer
+connections using operator-configured endpoints and trust, with status and opt-in
+echo diagnostics. See [the network foundation](network-foundation.md). Existing
+local simulations, file-backed inboxes and localhost endpoints remain reference
+foundations. An advertised capability is not proof of remote AI execution.
 
 ## End objectives and acceptance evidence
 
@@ -17,19 +21,27 @@ can execute a remote AI request.
    connecting, discovering capabilities, submitting work and reading results.
    Separate SDK version from protocol/schema and project release versions.
    Prove a minimal installed package works without a UI, daemon or model engine.
-   Current: compatible Python exports and local execution exist; a unified
-   network client and independent protocol negotiation remain planned.
+   Current: compatible Python exports and local execution coexist with a lightweight
+   `PeerClient`, version-1/2 negotiation and the optional `PeerService`/`aethermesh-peer`
+   CLI. Their diagnostic operations share the same implementation and protocol.
 2. **Real peer connectivity.** Define replaceable discovery/session/transport
    boundaries, peer authentication, reconnects and protocol negotiation.
    Test two separate processes and then machines, with unavailable/malicious
-   peers and bounded retry behavior. Current: in-memory/file local transport,
-   peer records and heartbeat fixtures; no socket-based P2P discovery or trust.
+   peers and bounded retry behavior. Current: explicit endpoints use mutually authenticated TLS 1.3, hostname
+   validation and certificate pins, with bounded direct sessions tested in separate
+   processes. Version 2 can exchange explicitly selected saved node identities
+   and optional coarse hardware profiles, retaining certificate-keyed peer records
+   and optional certificate-to-node-ID bindings. Profiles are self-reported, not
+   attested hardware facts. Version 1 remains supported without profile sharing.
+   Automatic discovery, NAT traversal, relays, automatic reconnect and
+   multi-machine deployment evidence remain future work.
 3. **Usable AI and job contracts.** Support capability discovery, input/output
    schema negotiation, inference requests, streaming, cancellation, timeouts,
    backpressure and stable typed failures. Distinguish submitted, executing,
    completed and independently validated results. Current: substantial local
    job/capability/result schemas and deterministic echo-style execution;
-   remote inference, streaming and cancellation remain planned.
+   the new diagnostic protocol adds request/result/error/cancel and timeouts.
+   Remote inference, streaming and adapters to legacy job envelopes remain planned.
 4. **Verifiable data and artifacts.** Retain result validation, creator
    attribution, receipts and lineage. Add bounded, content-addressed transfer,
    integrity verification, interrupted-transfer recovery and explicit provenance
@@ -48,8 +60,13 @@ can execute a remote AI request.
    application/operator choices for each contribution role, resource/bandwidth
    limits and any spend; never infer consent from connecting. Keep private
    prompts, credentials and unrelated application state out of peer metadata.
-   Current: local-only defaults and some audit redaction; network consent,
-   authorization and privacy enforcement are not implemented.
+   Current: the new peer client starts no listener or contributor work. Service
+   startup and echo opt-in are explicit; authenticated allowlists, bounded messages
+   and resource limits apply to this diagnostic protocol. Sharing a saved identity,
+   creating one, and adding coarse hardware metadata are separate explicit choices;
+   no raw MAC/serial/device data or local provenance is included in profiles.
+   Hosting/build/training/
+   seeding services and their consent/privacy policies remain unimplemented.
 7. **App-neutral integration.** Provide optional adapters usable by Eidolon and
    other UIs/services. Network-side routing is distinct from application agents.
    AER (Adaptive Expert Routing), REVA (Router → Expert → Validator → Aggregator)
@@ -85,6 +102,9 @@ cleanup or for initial SDK connectivity.
 ## Repository inventory
 
 ### Keep and develop
+
+- `network/`: versioned direct-peer contracts, explicit TLS trust, lightweight
+  client and optional standalone service; status/echo only, no legacy job execution.
 
 - `messages.py`, `job_envelope.py`, `job_result_schema.py`, `job_failure_schema.py`,
   `capability_record.py`, `expert_manifest.py`: local contracts and validation.
@@ -122,6 +142,7 @@ cleanup and are not an authoritative description of the current tree.
   version, exported Python symbols and existing protocol/schema versions remain
   unchanged. A later package/API rename needs an explicit migration plan.
 - `aethermesh`, `aethermesh-node` and `aethermesh-core` entrypoints remain.
+  The new `aethermesh-peer` entrypoint is opt-in and does not change their behavior.
   `[api]` is the headless server extra; `[ui]` remains a compatibility alias.
 - `aethermesh ui` is retired. `GET /` now returns a JSON service index instead of
   HTML. Consumers wanting UI must provide it themselves.
@@ -143,13 +164,15 @@ cleanup and are not an authoritative description of the current tree.
 
 ## Next implementation slices
 
-1. Specify the client/protocol/reference-node split and migration surface.
-2. Add a client that performs real operations against the existing local API,
-   with typed results, errors and explicit unsupported capabilities.
-3. Implement and test one authenticated transport between two independent peers.
-4. Add inference/stream/cancel contracts and one real provider integration.
-5. Specify project manifests and transfer verification before update distribution.
-6. Add opt-in build/training interfaces only when an implementing service exists.
+1. Review and extend the implemented `network/` client/protocol/service split,
+   direct authenticated transport and two-process conformance suite.
+2. Add a replaceable transport/session adapter and discovery/bootstrap interfaces
+   after multi-machine validation and a transport threat-model review.
+3. Map existing job schemas into versioned inference/stream contracts and add one
+   real provider integration without advertising unimplemented capabilities.
+4. Specify project manifests and transfer verification before update distribution.
+5. Add opt-in build/training interfaces only when an implementing service exists.
 
 Each slice needs runnable evidence and its own security/compatibility review.
-This cleanup does not claim to implement those slices.
+The current foundation implements only bounded direct-peer diagnostics. It does
+not claim the remaining slices or production Internet hardening.

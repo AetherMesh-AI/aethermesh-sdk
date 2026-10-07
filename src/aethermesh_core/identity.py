@@ -298,6 +298,15 @@ def _reject_secret_identity_fields(value: object) -> None:
             _reject_secret_identity_fields(nested_value)
 
 
+def read_identity(path: str | Path) -> NodeIdentity:
+    """Read and validate a saved identity without probing, creating, or updating it."""
+
+    identity_path = Path(path)
+    return _validated_identity_from_document(
+        _load_identity_document(identity_path), identity_path=identity_path
+    )
+
+
 def load_or_create_identity(
     path: str | Path,
     *,
