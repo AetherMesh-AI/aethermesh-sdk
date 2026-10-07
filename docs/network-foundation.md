@@ -2,7 +2,9 @@
 
 This slice provides real TCP connectivity between an application SDK and an
 independently running, opt-in reference peer service. It is a diagnostic network
-foundation, not a deployed public P2P network or an AI execution service.
+foundation, not a deployed public P2P network or a general AI execution service.
+An optional [verified tiny-router pilot](verified-learning-pilot.md) adds one
+strict numeric evaluation capability; it must be explicitly enabled and budgeted.
 
 ## Component boundary
 
@@ -11,7 +13,8 @@ foundation, not a deployed public P2P network or an AI execution service.
 - `PeerClient` owns outbound sessions, capability negotiation, correlated
   requests, bounded deadlines, cancellation, and explicit reconnects.
 - `PeerService` is the separately started reference service. It exposes `status`
-  and, only when explicitly enabled, deterministic diagnostic `echo`.
+  and, only when explicitly enabled, deterministic diagnostic `echo`. An optional
+  `RouterEvaluator` enables bounded `router.evaluate.v1` microtasks.
 - `TLSIdentity`, `PeerEndpoint`, `Limits`, and the protocol codec are shared
   client/service foundations. Importing or constructing the SDK does not start
   a listener, host work, or consent to contributing resources.
@@ -120,7 +123,8 @@ async def diagnose():
 ```
 
 Unknown or disabled operations fail honestly. Capability advertisement describes
-these diagnostic handlers only; it is not evidence of inference capacity.
+the enabled handlers; it is not evidence of general inference capacity. The
+optional numeric evaluator is described in the separate learning pilot guide.
 
 ## Optional saved node identity and coarse hardware
 
@@ -219,7 +223,8 @@ configured independently: the service never learns trust automatically from a
 peer's claim. All names, IDs and hardware details remain self-reported, even
 when `identity_pinned=True`. A matching configured claim is not hardware
 attestation, proof of capacity, certificate ownership beyond TLS, or publisher
-authority. Only diagnostic `status` and optional `echo` are implemented.
+authority. The default operations remain diagnostic `status` and optional `echo`;
+a separately configured evaluator can add the bounded learning-pilot operation.
 
 Add optional flags to the earlier service/client commands:
 
@@ -278,9 +283,12 @@ it never contains node metadata. A version-1 peer receives the original welcome,
 status and request shapes, with no `node`, `identify` or `ready`. A new client
 can therefore connect to a version-1 server without disclosing its configured
 local profile. Conversely, a new server accepts an old client when no configured
-expected node-ID binding requires version 2. Capability lists remain `status`
+expected node-ID binding requires version 2. Default capability lists remain `status`
 and optional `echo` in both versions; metadata support is indicated by protocol
-version, not an advertised inference or hosting capability.
+version, not an advertised inference or hosting capability. An opted-in router
+evaluator adds `router.evaluate.v1` in version 2 only; version 1 sessions remain
+diagnostic-only. Older version-2 clients with strict capability allowlists must
+be upgraded before connecting to an evaluator-enabled service.
 
 `status` reports protocol version and advertised capabilities. In version 2 it
 also includes `node`, which must equal the server profile accepted during the
@@ -356,7 +364,8 @@ Not implemented by this slice:
 
 - Public peer discovery, routing, NAT traversal, relays, or cross-machine
   operational acceptance evidence
-- AI inference, streaming model output, AER/REVA/AEF routing, or provider adapters
+- General AI inference, streaming model output, production AER/REVA/AEF expert
+  routing, or provider adapters; the optional toy binary router is a bounded pilot
 - Artifact transfer, distributed builds, signed project update distribution,
   package/OS installation, release governance, or publisher trust policy
 - Model training, seeding, contribution scheduling, payments, or rewards

@@ -25,6 +25,7 @@ from .config import (
     validate_project_id,
 )
 from .errors import PeerError, ProtocolError, RemoteError
+from .evaluation import ROUTER_EVALUATION_OPERATION, RouterEvaluator
 from .profile import NodeProfile, PeerInfo, validate_node_id
 from .protocol import SUPPORTED_PROTOCOL_VERSIONS, close_writer, read_frame, write_frame
 
@@ -43,11 +44,15 @@ class _Session:
 
 
 class PeerService:
-    """A bounded, explicitly started TLS peer exposing status and optional echo.
+    """A bounded, explicitly started TLS peer with explicitly enabled operations.
 
     Constructing this object performs no I/O. It never starts a daemon, executes
     arbitrary work, or enables hosting/inference as a side effect of connecting.
     ``close`` is idempotent, and the same service can subsequently be restarted.
+    ``router_evaluator`` opts into experimental fixed-router evaluation for
+    upgraded protocol-v2 clients. Legacy v1 sessions retain status/echo only;
+    older v2 clients reject this new capability and must be upgraded to connect
+    to an evaluator-enabled service.
     """
 
     def __init__(
@@ -60,6 +65,7 @@ class PeerService:
         limits: Limits = _DEFAULT_LIMITS,
         node_profile: NodeProfile | None = None,
         expected_peer_ids: Mapping[str, str] | None = None,
+        router_evaluator: RouterEvaluator | None = None,
     ) -> None:
         validate_project_id(project_id)
         if not isinstance(allowed_peers, frozenset):
@@ -73,6 +79,10 @@ class PeerService:
             raise ValueError("unsupported peer capability")
         if node_profile is not None and not isinstance(node_profile, NodeProfile):
             raise TypeError("node_profile must be a NodeProfile or None")
+        if router_evaluator is not None and not isinstance(
+            router_evaluator, RouterEvaluator
+        ):
+            raise TypeError("router_evaluator must be a RouterEvaluator or None")
         if expected_peer_ids is not None and not isinstance(expected_peer_ids, Mapping):
             raise TypeError(
                 "expected_peer_ids must map allowed fingerprints to node IDs"
@@ -86,11 +96,14 @@ class PeerService:
                     "node identity bindings require an allowed fingerprint"
                 )
         self._node_profile = node_profile
+        self._router_evaluator = router_evaluator
         self._expected_peer_ids: Mapping[str, str] = MappingProxyType(bindings)
         self._peers: dict[asyncio.StreamWriter, PeerInfo] = {}
         self.identity = identity
         self.project_id = project_id
         self.capabilities = frozenset({"status"}) | capabilities
+        if router_evaluator is not None:
+            self.capabilities |= frozenset({ROUTER_EVALUATION_OPERATION})
         self.allowed_peers = allowed_peers
         self.limits = limits
         self._server: asyncio.Server | None = None
@@ -111,6 +124,11 @@ class PeerService:
     def expected_peer_ids(self) -> Mapping[str, str]:
         """A read-only snapshot of configured certificate-to-node-ID bindings."""
         return self._expected_peer_ids
+
+    def _session_capabilities(self, protocol_version: int) -> frozenset[str]:
+        if protocol_version == 1:
+            return self.capabilities - {ROUTER_EVALUATION_OPERATION}
+        return self.capabilities
 
     @property
     def peers(self) -> tuple[PeerInfo, ...]:
@@ -218,7 +236,9 @@ class PeerService:
             "type": "welcome",
             "version": session.protocol_version,
             "project": self.project_id,
-            "capabilities": sorted(self.capabilities),
+            "capabilities": sorted(
+                self._session_capabilities(session.protocol_version)
+            ),
         }
         profile = None
         if session.protocol_version == 2:
@@ -365,20 +385,25 @@ class PeerService:
     async def _operate(
         self, operation: str, payload: dict[str, Any], *, protocol_version: int = 1
     ) -> dict[str, Any]:
-        if operation not in self.capabilities:
+        if operation not in self._session_capabilities(protocol_version):
             raise RemoteError("unsupported_operation", "operation is not enabled")
         if operation == "status":
             if payload:
                 raise RemoteError("invalid_request", "status payload must be empty")
             status: dict[str, Any] = {
                 "protocol_version": protocol_version,
-                "capabilities": sorted(self.capabilities),
+                "capabilities": sorted(self._session_capabilities(protocol_version)),
             }
             if protocol_version == 2:
                 status["node"] = (
                     self.node_profile.to_dict() if self.node_profile else None
                 )
             return status
+        if (
+            operation == ROUTER_EVALUATION_OPERATION
+            and self._router_evaluator is not None
+        ):
+            return self._router_evaluator.evaluate(payload)
         text = payload.get("text")
         delay = payload.get("delay_ms", 0)
         if (

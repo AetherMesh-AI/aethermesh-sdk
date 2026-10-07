@@ -14,6 +14,12 @@ from .errors import (
     RemoteError,
     RequestTimeout,
 )
+from .evaluation import (
+    ROUTER_EVALUATION_OPERATION,
+    EvaluationBudget,
+    RouterEvaluator,
+    evaluation_task,
+)
 from .profile import (
     HardwareProfile,
     NodeProfile,
@@ -26,9 +32,11 @@ from .service import PeerService
 
 __all__ = [
     "PROTOCOL_VERSION",
+    "ROUTER_EVALUATION_OPERATION",
     "SUPPORTED_PROTOCOL_VERSIONS",
     "AuthenticationError",
     "ConnectionClosed",
+    "EvaluationBudget",
     "HardwareProfile",
     "Limits",
     "NodeProfile",
@@ -40,8 +48,10 @@ __all__ = [
     "ProtocolError",
     "RemoteError",
     "RequestTimeout",
+    "RouterEvaluator",
     "TLSIdentity",
     "certificate_fingerprint",
+    "evaluation_task",
     "hardware_profile",
     "load_node_profile",
 ]

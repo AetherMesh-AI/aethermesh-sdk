@@ -121,3 +121,11 @@ they do not install certificates or modify the operating system trust store.
 
 [Architecture](docs/architecture.md) · [Persistent goal](docs/persistent-goal.md) ·
 [Local identity](docs/local-node-identity.md) · [Local lifecycle](docs/local-node-lifecycle.md)
+
+### Experimental verified learning
+
+The opt-in [tiny-router learning pilot](docs/verified-learning-pilot.md) connects
+a separate CPU trainer to bounded TLS evaluator peers, independent-operator
+quorums, held-out/regression gates, local promotion and explicit rollback. It is
+a controlled development experiment, not a public network or production
+self-improving model platform. Default SDK connections enable no contribution.

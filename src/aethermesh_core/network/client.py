@@ -23,6 +23,7 @@ from .errors import (
     RemoteError,
     RequestTimeout,
 )
+from .evaluation import ROUTER_EVALUATION_OPERATION, validate_evaluation_result
 from .profile import NodeProfile, PeerInfo
 from .protocol import (
     SUPPORTED_PROTOCOL_VERSIONS,
@@ -37,6 +38,7 @@ _ERRORS = {
     "unsupported_operation": "The peer does not offer this operation.",
     "busy": "The peer has reached its request limit.",
     "cancelled": "The peer cancelled the request.",
+    "resource_limit": "The peer has reached its evaluation resource limit.",
 }
 
 
@@ -80,8 +82,13 @@ class PeerClient:
         return self._writer is not None and not self._writer.is_closing()
 
     @property
+    def project_id(self) -> str:
+        """The configured project namespace negotiated when connecting."""
+        return self._project
+
+    @property
     def capabilities(self) -> tuple[str, ...]:
-        """Negotiated diagnostic operations, empty while disconnected."""
+        """Negotiated supported operations, empty while disconnected."""
         return self._capabilities
 
     @property
@@ -192,7 +199,10 @@ class PeerClient:
             or not all(isinstance(item, str) for item in capabilities)
             or len(capabilities) != len(set(capabilities))
             or "status" not in capabilities
-            or not set(capabilities).issubset({"status", "echo"})
+            or not set(capabilities).issubset(
+                {"status", "echo", ROUTER_EVALUATION_OPERATION}
+            )
+            or (version == 1 and ROUTER_EVALUATION_OPERATION in capabilities)
         ):
             raise ProtocolError("The peer advertised invalid capabilities.")
         return tuple(capabilities)
@@ -235,11 +245,13 @@ class PeerClient:
         *,
         timeout: float = 10.0,
     ) -> Message:
-        """Run a bounded diagnostic operation and return its versioned result.
+        """Run a bounded supported operation and return its versioned result.
 
         ``status`` takes an empty payload. Explicitly enabled ``echo`` takes
         ``text`` (up to 4096 UTF-8 bytes) and optional ``delay_ms`` (0..1000).
         Echo is a connectivity diagnostic, not inference or job execution.
+        Upgraded protocol-v2 peers may explicitly offer ``router.evaluate.v1``;
+        use ``evaluation_task`` to build its fixed integer evaluation payload.
         """
         if (
             isinstance(timeout, bool)
@@ -262,6 +274,7 @@ class PeerClient:
         session_writer = self._writer
         peer = self._peer_info
         capabilities = self._capabilities
+        request_payload = dict(payload or {})
         request_id = 0
         future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
         try:
@@ -290,7 +303,7 @@ class PeerClient:
                             "type": "request",
                             "id": request_id,
                             "operation": operation,
-                            "payload": dict(payload or {}),
+                            "payload": request_payload,
                         },
                     )
                 result = await future
@@ -300,6 +313,8 @@ class PeerClient:
                     and peer.protocol_version == 2
                 ):
                     self._validate_status(result, peer, capabilities)
+                if operation == ROUTER_EVALUATION_OPERATION:
+                    validate_evaluation_result(result, request_payload)
                 return result
         except TimeoutError as exc:
             await self._cancel_request(request_id, session_writer)
