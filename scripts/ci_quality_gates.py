@@ -328,16 +328,21 @@ def command_install_smoke(args: argparse.Namespace) -> int:
         print(install.stdout, end="")
         if install.returncode != 0:
             return install.returncode
-        smoke = run([str(cli), "--help"])
-        print(smoke.stdout, end="")
-        if smoke.returncode != 0:
-            return smoke.returncode
-        example = run(
-            [str(python), "-I", str(ROOT / "examples" / "sdk_smoke.py")],
-            cwd=environment,
+        peer_cli = scripts / (
+            "aethermesh-peer.exe" if os.name == "nt" else "aethermesh-peer"
         )
-        print(example.stdout, end="")
-        return example.returncode
+        commands = [
+            [str(cli), "--help"],
+            [str(python), "-I", str(ROOT / "examples" / "sdk_smoke.py")],
+            [str(peer_cli), "--help"],
+            [str(python), "-I", str(ROOT / "examples" / "network_client.py"), "--help"],
+        ]
+        for command in commands:
+            smoke = run(command, cwd=environment)
+            print(smoke.stdout, end="")
+            if smoke.returncode != 0:
+                return smoke.returncode
+        return 0
 
 
 def command_flaky_tests(_: argparse.Namespace) -> int:

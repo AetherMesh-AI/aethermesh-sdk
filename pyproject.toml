@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aethermesh"
 version = "0.2.0a0"
-description = "Headless local foundations for the AetherMesh network SDK."
+description = "Headless AetherMesh SDK with an optional authenticated peer service."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -33,6 +33,7 @@ dev = [
 aethermesh = "aethermesh_core.app_cli:app"
 aethermesh-node = "aethermesh_core.app_cli:app"
 aethermesh-core = "aethermesh_core.cli:main"
+aethermesh-peer = "aethermesh_core.network.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

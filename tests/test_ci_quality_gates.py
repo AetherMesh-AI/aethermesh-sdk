@@ -100,10 +100,12 @@ class LocalParityGateTests(unittest.TestCase):
             (root / "dist").mkdir()
             (root / "dist" / "sdk.whl").touch()
             for returncodes, expected_calls in [
-                ([0, 0, 0], 3),
+                ([0, 0, 0, 0, 0], 5),
                 ([1], 1),
                 ([0, 2], 2),
                 ([0, 0, 3], 3),
+                ([0, 0, 0, 4], 4),
+                ([0, 0, 0, 0, 5], 5),
             ]:
                 with self.subTest(returncodes=returncodes):
                     results = [
@@ -117,13 +119,24 @@ class LocalParityGateTests(unittest.TestCase):
                         result = module.command_install_smoke(Namespace(dist="dist"))
                     self.assertEqual(result, returncodes[-1])
                     self.assertEqual(run.call_count, expected_calls)
-                    if expected_calls == 3:
-                        example_call = run.call_args_list[-1]
+                    if expected_calls >= 3:
+                        example_call = run.call_args_list[2]
                         self.assertEqual(
                             example_call.args[0][1:],
                             ["-I", str(root / "examples" / "sdk_smoke.py")],
                         )
                         self.assertNotEqual(example_call.kwargs["cwd"], root)
+                    if expected_calls == 5:
+                        peer_example = run.call_args_list[4]
+                        self.assertEqual(
+                            peer_example.args[0][1:],
+                            [
+                                "-I",
+                                str(root / "examples" / "network_client.py"),
+                                "--help",
+                            ],
+                        )
+                        self.assertNotEqual(peer_example.kwargs["cwd"], root)
 
     def test_flaky_tests_runs_all_three_hash_seeds(self) -> None:
         module = load_quality_gates_module()
