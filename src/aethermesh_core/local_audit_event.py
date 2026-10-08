@@ -54,7 +54,7 @@ _SECRET_IN_TEXT = re.compile(
     r"""(?ix)
     \b(?:bearer|basic)\s+[a-z0-9._~+/:=-]+
     |
-    [\"']?(?:[a-z0-9]+[_-])?(?:api[_-]?key|private[_-]?key|password|secret|token|seed(?:[_ -]?phrase)?|credential|authorization)[\"']?\s*[:=]\s*(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^,;\r\n]+)
+    [\"']?(?:[a-z0-9]+[_-])?(?:api[_-]?key|private[_-]?key|password|secret|token|seed(?:[_ -]?phrase)?|credential|authorization)[\"']?\s*+[:=]\s*+(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^,;\r\n]+)
     """
 )
 AUDIT_EVENT_TYPES = frozenset(

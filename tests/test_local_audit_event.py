@@ -6,6 +6,7 @@ from pathlib import Path
 from aethermesh_core.local_audit_event import (
     AUDIT_EVENT_TYPES,
     AUDIT_REDACTED_VALUE,
+    _SECRET_IN_TEXT,
     LocalAuditEventError,
     append_local_audit_event,
     sanitize_local_audit_event,
@@ -14,6 +15,9 @@ from aethermesh_core.local_audit_event import (
 
 
 class LocalAuditEventTests(unittest.TestCase):
+    def test_secret_redaction_prevents_separator_whitespace_backtracking(self) -> None:
+        self.assertEqual(_SECRET_IN_TEXT.pattern.count(r"\s*+"), 2)
+
     def test_sanitizes_secret_values_in_unstructured_audit_context(self) -> None:
         secrets = {
             "api_key": "api-live-" + "9Fj2qL",
