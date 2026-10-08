@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import platform
 import re
@@ -50,6 +51,8 @@ from aethermesh_core.validation_receipt_schema import (
     capture_validator_software_metadata,
     validate_validator_software_metadata,
 )
+
+logger = logging.getLogger(__name__)
 
 CONFIG_SCHEMA_VERSION = 1
 DEFAULT_API_HOST = "127.0.0.1"
@@ -1307,10 +1310,20 @@ class NodeRuntimeService:
                 checked, manifest, status, job_id
             )
         except _ResultReportPreflightError as exc:
-            return self._reject_local_result_report(report, exc.code, str(exc))
-        except ValueError as exc:
+            logger.exception(
+                "Result report preflight rejected with code '%s'", exc.code
+            )
             return self._reject_local_result_report(
-                report, "invalid_result_report", str(exc)
+                report,
+                exc.code,
+                "result report failed preflight validation",
+            )
+        except ValueError:
+            logger.exception("Result report preflight failed due to invalid input")
+            return self._reject_local_result_report(
+                report,
+                "invalid_result_report",
+                "result report failed preflight validation",
             )
 
         return {
