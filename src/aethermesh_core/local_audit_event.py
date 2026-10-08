@@ -260,7 +260,8 @@ def _sanitize_audit_value(value: Any, *, key: object | None = None) -> Any:
     if isinstance(value, list):
         return [_sanitize_audit_value(item) for item in value]
     if isinstance(value, str):
-        return _redact_secret_text(_sanitize_local_path(value))
+        redacted = _redact_secret_text(value)
+        return _sanitize_local_path(redacted)
     return value
 
 
