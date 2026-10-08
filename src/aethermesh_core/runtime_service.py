@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import platform
 import re
@@ -50,6 +51,8 @@ from aethermesh_core.validation_receipt_schema import (
     capture_validator_software_metadata,
     validate_validator_software_metadata,
 )
+
+logger = logging.getLogger(__name__)
 
 CONFIG_SCHEMA_VERSION = 1
 DEFAULT_API_HOST = "127.0.0.1"
@@ -863,10 +866,11 @@ class NodeRuntimeService:
 
         try:
             accepted = self.submit_local_job(request)
-        except RuntimeServiceError as exc:
+        except RuntimeServiceError:
+            logger.exception("Local job submission rejected due to runtime validation.")
             return self._submission_status(
                 status="rejected",
-                message=str(exc),
+                message="Local submission request is invalid.",
                 validation_state="rejected",
                 request=request,
             )
