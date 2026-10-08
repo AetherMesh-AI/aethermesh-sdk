@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aethermesh_core.job_result_schema import (
     JobResultSchemaError,
@@ -318,6 +319,17 @@ class JobResultSchemaTests(unittest.TestCase):
                     JobResultSchemaError, "relative local paths"
                 ):
                     validate_job_result_document(document)
+
+        document = copy.deepcopy(self.success)
+        document["references"]["artifact_refs"] = ["A" * 100_000]
+        document["result_hash"] = canonical_result_document_hash(document)
+        with patch(
+            "aethermesh_core.job_result_schema.re.match",
+            side_effect=AssertionError(
+                "artifact references must not use regex matching"
+            ),
+        ):
+            self.assertIs(validate_job_result_document(document), document)
 
         document = copy.deepcopy(self.failed)
         document["error_summary"] = None
