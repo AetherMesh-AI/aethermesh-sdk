@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
 import stat
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from itertools import islice
 from pathlib import Path
@@ -135,7 +136,12 @@ def verified_chunk(
 
 
 async def download_chunks(
-    client: PeerClient, manifest: TransferManifest, directory: int, *, timeout: float
+    client: PeerClient,
+    manifest: TransferManifest,
+    directory: int,
+    *,
+    timeout: float,
+    on_chunk: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> int:
     """Fetch only missing verified chunks; no retry, reconnect or hidden worker."""
     fetched = 0
@@ -144,6 +150,10 @@ async def download_chunks(
             data = await client.fetch_chunk(manifest, index, timeout=timeout)
             _save(directory, f"{index:03}.chunk", data)
             fetched += 1
+        # Cached chunks also yield, so cancellation does not require network I/O.
+        await asyncio.sleep(0)
+        if on_chunk is not None:
+            await on_chunk(index, fetched)
     return fetched
 
 
@@ -177,9 +187,12 @@ async def resume_download(
     *,
     resume: bool,
     timeout: float,
+    on_chunk: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> tuple[bytes, int]:
     """Own the staging lock through chunk verification and complete assembly."""
     state = checkpoint(path, manifest, resume=resume)
     with state as directory:
-        fetched = await download_chunks(client, manifest, directory, timeout=timeout)
+        fetched = await download_chunks(
+            client, manifest, directory, timeout=timeout, on_chunk=on_chunk
+        )
         return assemble(directory, manifest), fetched

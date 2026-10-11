@@ -9,6 +9,7 @@ from .bundle_export import export_bundle
 from .client import PeerClient
 from .config import Limits, PeerEndpoint, TLSIdentity, certificate_fingerprint
 from .content import CONTENT_OPERATION, MAX_CONTENT_BYTES, ContentRef, ContentStore
+from .download import DownloadError, DownloadProgress, DownloadResult, download_transfer
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
@@ -46,6 +47,9 @@ __all__ = [
     "ConnectionClosed",
     "ContentRef",
     "ContentStore",
+    "DownloadError",
+    "DownloadProgress",
+    "DownloadResult",
     "EvaluationBudget",
     "HardwareProfile",
     "Limits",
@@ -63,6 +67,7 @@ __all__ = [
     "TransferManifest",
     "TransferStore",
     "certificate_fingerprint",
+    "download_transfer",
     "evaluation_task",
     "export_bundle",
     "hardware_profile",

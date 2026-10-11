@@ -32,8 +32,9 @@ application states, not a new SDK protocol. Capability advertisements describe
 handlers; they do not attest capacity, code safety or publisher authority.
 
 Use `fetch_manifest` and `fetch_chunk` for bounded SDK-level byte retrieval;
-these calls do not themselves provide on-disk resume/publication. The installed
-`fetch-transfer` command provides that workflow. Initially an application can
+these calls do not themselves provide on-disk resume/publication. The public
+[`download_transfer` API](download-api.md) and installed `fetch-transfer` command
+provide that workflow. Prefer the public API for a Python adapter. Initially an application can
 invoke the installed CLI with an argument array, no shell, in its own isolated
 Python environment. Resolve that executable through application configuration,
 never a peer-supplied path. Pass only operator-selected paths and validated values.
@@ -78,12 +79,12 @@ timeout, cancellation, resume, pre-existing output and service shutdown. Existin
 providers must remain available throughout. Do not start hosting or share saved
 node/hardware metadata as a side effect of opening a screen.
 
-The most useful subsequent SDK improvement is a reviewed public high-level
-resumable-download API with progress and cancellation semantics, so a Python
-adapter need not own chunk persistence or supervise a CLI. It would reuse current
-bounds and safe publication behavior; it would not introduce pack import, a build
-scheduler, automatic trust or release installation. Decide that API from the
-application's reviewed needs after the basic connection acceptance.
+The public [resumable-download API](download-api.md) now provides immutable
+progress, scoped cancellation and explicit publication outcomes using the current
+checkpoint and integrity machinery. The next application step is an independently
+reviewed adapter using that API, with UI/lifecycle tests and the operator-approved
+connection acceptance above. It does not introduce pack import, a build scheduler,
+automatic trust or release installation.
 
 Untrusted Git ingestion still requires separately proven process, memory, disk,
 filesystem and network containment. Even validated Git objects would not authorize
