@@ -49,14 +49,17 @@ def read_selected(path: Path) -> bytes:
         fd = os.open(
             name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
         )
-        with os.fdopen(fd, "rb") as stream:
-            info = os.fstat(stream.fileno())
+        try:
+            info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_CONTENT_BYTES:
                 raise ValueError("content input must be a small regular file")
-            data = stream.read(MAX_CONTENT_BYTES + 1)
-            if len(data) > MAX_CONTENT_BYTES:
-                raise ValueError("content input grew beyond the size limit")
-            return data
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                data = stream.read(MAX_CONTENT_BYTES + 1)
+                if len(data) > MAX_CONTENT_BYTES:
+                    raise ValueError("content input grew beyond the size limit")
+                return data
+        finally:
+            os.close(fd)
 
 
 def require_absent(directory: int, name: str) -> None:
@@ -85,7 +88,7 @@ def publish_new(directory: int, name: str, data: bytes) -> None:
         dir_fd=directory,
     )
     try:
-        with os.fdopen(fd, "wb") as stream:
+        with os.fdopen(fd, "wb", closefd=False) as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
@@ -97,4 +100,5 @@ def publish_new(directory: int, name: str, data: bytes) -> None:
             follow_symlinks=False,
         )
     finally:
+        os.close(fd)
         os.unlink(temporary, dir_fd=directory)

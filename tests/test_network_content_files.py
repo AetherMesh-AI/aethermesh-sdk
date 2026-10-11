@@ -151,3 +151,23 @@ class ContentFileTests(unittest.TestCase):
                 self.assertEqual(read_selected(relative), b"relative")
         finally:
             os.close(fd)
+
+    def test_wrapper_constructor_failure_closes_raw_descriptors(self) -> None:
+        source = self.root / "input"
+        source.write_bytes(b"selected")
+        with (
+            patch("os.fdopen", side_effect=OSError("wrapper failed")) as wrapper,
+            self.assertRaises(OSError),
+        ):
+            read_selected(source)
+        with self.assertRaises(OSError):
+            os.fstat(wrapper.call_args.args[0])
+        with selected_parent(self.root / "output") as (parent, name):
+            with (
+                patch("os.fdopen", side_effect=OSError("wrapper failed")) as wrapper,
+                self.assertRaises(OSError),
+            ):
+                publish_new(parent, name, b"verified")
+            with self.assertRaises(OSError):
+                os.fstat(wrapper.call_args.args[0])
+        self.assertEqual(list(self.root.iterdir()), [source])
