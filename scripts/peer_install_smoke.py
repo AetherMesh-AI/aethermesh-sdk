@@ -579,6 +579,84 @@ async def bundle_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
     )
 
 
+async def artifact_smoke(pki: Any, cwd: Path) -> None:
+    """Select and transfer one opaque erasure fragment through unchanged TLS."""
+    from aethermesh_core.artifact_codec import (
+        ArtifactLimits,
+        ArtifactManifest,
+        package_artifact,
+        publish_artifact,
+    )
+    from aethermesh_core.network import (
+        PeerEndpoint,
+        PeerService,
+        TransferStore,
+        certificate_fingerprint,
+        download_transfer,
+    )
+
+    source = bytes(range(256)) * 1100 + b"synthetic-only"
+    package = package_artifact(
+        source,
+        project="artifact",
+        kind="dataset",
+        data_class="synthetic",
+        expires_at=4102444800,
+        limits=ArtifactLimits(),
+    )
+    # Root selected locally. A peer cannot choose the receiver's expected root.
+    manifest = ArtifactManifest.decode(
+        package.manifest.encode(),
+        project="artifact",
+        expected_digest=package.manifest.digest,
+    )
+    index = 4
+    fragment = package.fragments[index]
+    store = TransferStore("artifact", fragment, max_served_bytes=1_000_000)
+    assert store.manifest.digest == manifest.fragments[index][1]
+    service = PeerService(
+        pki.server.identity(),
+        project_id="artifact",
+        allowed_peers=frozenset({certificate_fingerprint(pki.client.certificate)}),
+        transfer_store=store,
+    )
+    await service.start()
+    try:
+        endpoint = PeerEndpoint(
+            *service.address,
+            "localhost",
+            certificate_fingerprint(pki.server.certificate),
+        )
+        result = await download_transfer(
+            pki.client.identity(),
+            endpoint,
+            project_id="artifact",
+            manifest_sha256=manifest.fragments[index][1],
+            staging=cwd / "artifact-stage",
+            output=cwd / "fragment",
+            timeout=5,
+        )
+        received = result.output.read_bytes()
+        assert result.integrity_verified and not result.publisher_authorized
+        assert received == fragment and result.chunks_fetched == 3
+        manifest.transfer_manifest(index, received)
+        publication = publish_artifact(
+            manifest,
+            (
+                (0, package.fragments[0]),
+                (2, package.fragments[2]),
+                (4, received),
+                (5, package.fragments[5]),
+            ),
+            cwd / "artifact-output",
+            expected_digest=manifest.digest,
+        )
+        assert publication.integrity_verified and not publication.publisher_authorized
+        assert publication.output.read_bytes() == source
+    finally:
+        await service.close()
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -707,6 +785,7 @@ async def smoke() -> None:
                     await stalled.wait_closed()
         finally:
             await stop(server)
+        await artifact_smoke(pki, cwd)
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
