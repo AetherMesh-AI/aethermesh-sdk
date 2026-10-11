@@ -23,6 +23,67 @@ import aethermesh_core
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def learning_state_smoke(cwd: Path) -> None:
+    """Exercise installed local recovery independently of all peer transports."""
+    from aethermesh_core.learning_state import (
+        LearningBinding,
+        LearningConflict,
+        LearningJournal,
+        LearningSnapshot,
+    )
+
+    binding = LearningBinding(
+        "installed-learning", "1" * 64, "2" * 64, "3" * 64, "4" * 64
+    )
+    directory = cwd.resolve() / "learning-job"
+    first = LearningJournal.create(directory, binding, state=b"initial")
+    try:
+        claimed = first.claim(expected_revision=0)
+
+        def validate(
+            previous: LearningSnapshot, state: bytes, checkpoint: bytes
+        ) -> None:
+            # Test-only byte contract, not a model-promotion policy.
+            assert (
+                previous.state == b"initial"
+                and state == b"saved"
+                and checkpoint == b"checkpoint"
+            )
+
+        saved = first.commit(
+            term=claimed.term,
+            expected_revision=claimed.revision,
+            state=b"saved",
+            checkpoint=b"checkpoint",
+            evidence=("5" * 64,),
+            validate=validate,
+        )
+    finally:
+        first.close()
+    recovered = LearningJournal(directory, binding)
+    try:
+        assert recovered.snapshot() == saved
+        newer = recovered.claim(expected_revision=saved.revision)
+        try:
+            recovered.commit(
+                term=claimed.term,
+                expected_revision=newer.revision,
+                state=b"saved",
+                checkpoint=b"checkpoint",
+                evidence=(),
+                validate=validate,
+            )
+        except LearningConflict:
+            pass
+        else:
+            raise AssertionError("installed journal accepted a stale coordinator")
+    finally:
+        recovered.close()
+    print(
+        "Installed local learning recovery passed; no training or distributed-consensus claim."
+    )
+
+
 async def stop(process: asyncio.subprocess.Process) -> None:
     if process.returncode is None:
         process.terminate()
@@ -606,6 +667,7 @@ async def smoke() -> None:
                     await stalled.wait_closed()
         finally:
             await stop(server)
+        learning_state_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
         await transfer_smoke(peer, pki, pins, cwd)
         await bundle_smoke(peer, pki, pins, cwd)

@@ -148,3 +148,7 @@ one pinned local branch for opaque peer transfer without importing received pack
 For operator-approved real-machine setup, use the [two-peer runbook](docs/two-peer-operations.md) and [application integration contract](docs/peer-integration-contract.md). These are deployment guidance; current automated evidence remains loopback-only.
 
 Python applications can use the public [resumable-download API](docs/download-api.md) for typed progress, scoped cancellation and explicit output publication.
+
+The [durable local learning-state utility](docs/durable-learning-state.md) supports
+bounded job/checkpoint recovery and coordinator fencing for a separate learning
+service. It does not train models or provide distributed consensus.
