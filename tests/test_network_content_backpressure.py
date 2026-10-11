@@ -263,6 +263,14 @@ class DownloadBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 try:
                     return (await asyncio.gather(*children))[0]
                 finally:
+                    # Release the deliberate sender throttle once cancellation
+                    # has been observed. Linux otherwise drains the test's 64
+                    # queued replies slowly even after the reader resumes.
+                    for responding in service.pressured_writers:
+                        responding.get_extra_info("socket").setsockopt(
+                            socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576
+                        )
+                        responding.transport.set_write_buffer_limits()
                     transport.resume_reading()
                     for child in children:
                         child.cancel()
