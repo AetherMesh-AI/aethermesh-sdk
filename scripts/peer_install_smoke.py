@@ -106,6 +106,46 @@ async def command(*args: str, cwd: Path) -> tuple[int | None, bytes, bytes]:
         await stop(process)
 
 
+async def numeric_expert_smoke(cwd: Path) -> None:
+    """Run the external demo against the installed SDK across fresh processes."""
+    args = [
+        sys.executable,
+        "-I",
+        str(ROOT / "examples" / "numeric_expert_demo.py"),
+        "--directory",
+        str(cwd / "numeric-expert"),
+        "--job-id",
+        "a" * 64,
+    ]
+
+    async def invoke(*extra: str) -> dict[str, Any]:
+        code, out, err = await command(*args, *extra, cwd=cwd)
+        assert code == 0 and not err, (code, err)
+        value: dict[str, Any] = json.loads(out)
+        assert value["evidence_authenticated"] is False
+        assert value["replicated_coordination"] is False
+        return value
+
+    first = await invoke("--create", "--steps", "1")
+    assert first["phase"] == "training" and first["processed"] == 4
+    resumed = await invoke("--steps", "4")
+    assert resumed["phase"] == "promoted" and resumed["term"] > first["term"]
+    assert resumed["assessment"] == {
+        "promote": True,
+        "heldout_sse_before": "250",
+        "heldout_sse_after": "0",
+        "regressed_cases": 0,
+    }
+    rollback = await invoke("--rollback")
+    assert (
+        rollback["phase"] == "rolled_back"
+        and rollback["active_model"] == first["active_model"]
+    )
+    print(
+        "Installed external numeric-expert demo passed: real training, process restart, held-out/regression gates, promotion, rollback; local unsigned evidence only."
+    )
+
+
 async def content_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
     """Installed CLI transfers one selected binary file; never executes it."""
     source = cwd / "selected.bin"
@@ -668,6 +708,7 @@ async def smoke() -> None:
         finally:
             await stop(server)
         learning_state_smoke(cwd)
+        await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
         await transfer_smoke(peer, pki, pins, cwd)
         await bundle_smoke(peer, pki, pins, cwd)

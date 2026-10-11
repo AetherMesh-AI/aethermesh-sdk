@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from unittest.mock import patch
@@ -205,7 +206,7 @@ os._exit(72)
         other.mkdir(mode=0o700)
         database = other / "state.sqlite3"
         database.touch(mode=0o600)
-        with sqlite3.connect(database) as db:
+        with closing(sqlite3.connect(database)) as db, db:
             db.execute("PRAGMA page_size=2048")
             db.execute("CREATE TABLE unused (value INTEGER)")
         with self.assertRaises(ValueError):
@@ -231,7 +232,7 @@ os._exit(72)
             with self.subTest(field=field), self.assertRaises(ValueError):
                 LearningJournal(self.directory, replace(BINDING, **{field: value}))
         self.store.close()
-        with sqlite3.connect(self.directory / "state.sqlite3") as db:
+        with closing(sqlite3.connect(self.directory / "state.sqlite3")) as db, db:
             db.execute("UPDATE job SET version=2")
         with self.assertRaises(ValueError):
             self.open()
@@ -280,14 +281,14 @@ os._exit(72)
 
     def test_lifetime_limits_cannot_reset_on_reopen(self) -> None:
         self.store.claim(expected_revision=0)
-        with sqlite3.connect(self.directory / "state.sqlite3") as db:
+        with closing(sqlite3.connect(self.directory / "state.sqlite3")) as db, db:
             db.executemany(
                 "INSERT INTO evidence VALUES (?)", ((f"{i:064x}",) for i in range(1024))
             )
         with self.assertRaisesRegex(ValueError, "evidence limit"):
             self.commit(self.open())
         self.commit(self.store, evidence=())
-        with sqlite3.connect(self.directory / "state.sqlite3") as db:
+        with closing(sqlite3.connect(self.directory / "state.sqlite3")) as db, db:
             db.execute("UPDATE job SET revision=4096")
         with self.assertRaisesRegex(ValueError, "revision limit"):
             self.open().claim(expected_revision=4096)
@@ -301,11 +302,17 @@ os._exit(72)
             "UPDATE job SET term='bad'",
         ):
             with self.subTest(statement=statement):
-                with sqlite3.connect(self.directory / "state.sqlite3") as db:
+                with (
+                    closing(sqlite3.connect(self.directory / "state.sqlite3")) as db,
+                    db,
+                ):
                     db.execute(statement)
                 with self.assertRaises(ValueError):
                     self.open()
-                with sqlite3.connect(self.directory / "state.sqlite3") as db:
+                with (
+                    closing(sqlite3.connect(self.directory / "state.sqlite3")) as db,
+                    db,
+                ):
                     db.execute(
                         "UPDATE job SET state=?, checkpoint=?, revision=0, term=0",
                         (b"initial", b""),
