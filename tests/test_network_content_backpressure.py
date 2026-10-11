@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from aethermesh_core.network import (
     ContentStore,
@@ -19,6 +20,7 @@ from aethermesh_core.network import (
     RemoteError,
     TransferStore,
     certificate_fingerprint,
+    download_transfer,
 )
 from tests.network_test_support import TestPKI
 
@@ -209,3 +211,120 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 await client.close()
                 await service.close()
             self.assertEqual(service.peers, ())
+
+
+class DownloadBackpressureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_download_cancellation_owns_only_its_pressured_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            pki = TestPKI.create(root / "pki")
+            blob = bytes(range(256)) * 128
+            store = TransferStore("pressure", blob, max_served_bytes=4 * 1024 * 1024)
+            service = ObservedService(
+                pki.server.identity(),
+                project_id="pressure",
+                allowed_peers=frozenset(
+                    {certificate_fingerprint(pki.client.certificate)}
+                ),
+                transfer_store=store,
+                limits=Limits(max_inflight=64),
+            )
+            await service.start()
+            endpoint = PeerEndpoint(
+                *service.address,
+                "localhost",
+                certificate_fingerprint(pki.server.certificate),
+            )
+            original = PeerClient.fetch_chunk
+            paused = []
+            children = []
+            owned = []
+
+            def client_factory(*args, **kwargs):
+                client = PeerClient(*args, **kwargs, limits=Limits(max_inflight=64))
+                owned.append(client)
+                return client
+
+            async def pressured_fetch(client, manifest, index, *, timeout):
+                writer = client._writer
+                transport = writer.transport._ssl_protocol._transport
+                paused.append(transport)
+                transport.pause_reading()
+                # Deliberately saturate this owned session with bounded genuine
+                # chunk requests. This is test instrumentation, not API prefetch.
+                task = asyncio.current_task()
+                service.fetch_tasks = [task] * 65  # Manifest is request 1.
+                children.extend(
+                    asyncio.create_task(
+                        original(client, manifest, index, timeout=timeout)
+                    )
+                    for _ in range(64)
+                )
+                try:
+                    return (await asyncio.gather(*children))[0]
+                finally:
+                    # Release the deliberate sender throttle once cancellation
+                    # has been observed. Linux otherwise drains the test's 64
+                    # queued replies slowly even after the reader resumes.
+                    for responding in service.pressured_writers:
+                        responding.get_extra_info("socket").setsockopt(
+                            socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576
+                        )
+                        responding.transport.set_write_buffer_limits()
+                    transport.resume_reading()
+                    for child in children:
+                        child.cancel()
+                    await asyncio.gather(*children, return_exceptions=True)
+
+            task = None
+            try:
+                async with PeerClient(
+                    pki.client.identity(), project_id="pressure"
+                ) as other:
+                    await other.connect(endpoint)
+                    with (
+                        patch(
+                            "aethermesh_core.network.download.PeerClient",
+                            client_factory,
+                        ),
+                        patch.object(PeerClient, "fetch_chunk", pressured_fetch),
+                    ):
+                        task = asyncio.create_task(
+                            download_transfer(
+                                pki.client.identity(),
+                                endpoint,
+                                project_id="pressure",
+                                manifest_sha256=store.manifest.digest,
+                                staging=root / "stage",
+                                output=root / "out",
+                                timeout=15,
+                            )
+                        )
+                        await asyncio.wait_for(service.blocked.wait(), 5)
+                        self.assertGreater(service.buffered_bytes, 0)
+                        self.assertTrue(service.cancelled_while_pressured)
+                        with self.assertRaises(asyncio.CancelledError):
+                            await asyncio.wait_for(task, 5)
+                    self.assertFalse((root / "out").exists())
+                    self.assertTrue(all(child.done() for child in children))
+                    self.assertFalse(owned[0].connected)
+                    self.assertIsNone(owned[0]._receiver)
+                    self.assertEqual(owned[0]._pending, {})
+                    await other.request("status")
+                    result = await download_transfer(
+                        pki.client.identity(),
+                        endpoint,
+                        project_id="pressure",
+                        manifest_sha256=store.manifest.digest,
+                        staging=root / "stage",
+                        output=root / "out",
+                        resume=True,
+                    )
+                    self.assertEqual(result.output.read_bytes(), blob)
+            finally:
+                for transport in paused:
+                    transport.resume_reading()
+                if task is not None:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                await service.close()

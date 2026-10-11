@@ -133,6 +133,132 @@ async def content_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None
     )
 
 
+async def download_api_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
+    """Installed public API cancellation, callback failure and explicit resume."""
+    from aethermesh_core.network import (
+        DownloadError,
+        DownloadProgress,
+        PeerEndpoint,
+        TransferStore,
+        download_transfer,
+    )
+
+    blob = b"".join(bytes([index]) * 32768 for index in range(256))
+    source = cwd / "api-source"
+    source.write_bytes(blob)
+    manifest = TransferStore("api-download", blob, max_served_bytes=0).manifest
+    server = await asyncio.create_subprocess_exec(
+        peer,
+        "serve",
+        "--certificate",
+        str(pki.server.certificate),
+        "--private-key",
+        str(pki.server.private_key),
+        "--trust-store",
+        str(pki.ca),
+        "--allow-peer",
+        pins[1],
+        "--project",
+        "api-download",
+        "--share-transfer",
+        str(source),
+        "--content-budget",
+        str(32 * 1024 * 1024),
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        assert server.stdout is not None
+        ready = json.loads(await asyncio.wait_for(server.stdout.readline(), 10))
+        endpoint = PeerEndpoint("127.0.0.1", ready["port"], "localhost", pins[0])
+        staging, output = cwd / "api-stage", cwd / "api-output"
+
+        # End one installed SDK process after cooperative cancellation, then
+        # resume in this independent installed process using only checkpoints.
+        cancelled_code = """
+import asyncio, sys
+from pathlib import Path
+from aethermesh_core.network import TLSIdentity, PeerEndpoint, download_transfer
+async def interrupt(progress):
+    if progress.chunks_fetched == 3:
+        raise asyncio.CancelledError()
+async def main():
+    try:
+        await download_transfer(
+            TLSIdentity(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])),
+            PeerEndpoint('127.0.0.1', int(sys.argv[4]), 'localhost', sys.argv[5]),
+            project_id='api-download', manifest_sha256=sys.argv[6],
+            staging=Path(sys.argv[7]), output=Path(sys.argv[8]), on_progress=interrupt)
+    except asyncio.CancelledError:
+        return 130
+    return 1
+sys.exit(asyncio.run(main()))
+"""
+        code, out, err = await command(
+            sys.executable,
+            "-I",
+            "-c",
+            cancelled_code,
+            str(pki.client.certificate),
+            str(pki.client.private_key),
+            str(pki.ca),
+            str(ready["port"]),
+            pins[0],
+            manifest.digest,
+            str(staging),
+            str(output),
+            cwd=cwd,
+        )
+        assert code == 130 and not out and not err and not output.exists()
+
+        async def fail_final(progress: DownloadProgress) -> None:
+            if progress.phase == "verified":
+                raise RuntimeError("application callback failed")
+
+        try:
+            await download_transfer(
+                pki.client.identity(),
+                endpoint,
+                project_id="api-download",
+                manifest_sha256=manifest.digest,
+                staging=staging,
+                output=output,
+                resume=True,
+                on_progress=fail_final,
+            )
+        except DownloadError as error:
+            assert error.code == "callback_failed" and not error.publication_attempted
+        else:
+            raise AssertionError("expected callback failure")
+        assert not output.exists()
+        seen: list[DownloadProgress] = []
+
+        async def observe(progress: DownloadProgress) -> None:
+            seen.append(progress)
+
+        result = await download_transfer(
+            pki.client.identity(),
+            endpoint,
+            project_id="api-download",
+            manifest_sha256=manifest.digest,
+            staging=staging,
+            output=output,
+            resume=True,
+            on_progress=observe,
+        )
+        assert result.chunks_fetched == 0 and result.chunks_reused == 256
+        assert result.integrity_verified and not result.publisher_authorized
+        assert result.output.read_bytes() == blob
+        assert len(seen) == 258 and seen[-1].verified_bytes == len(blob)
+        assert [p.verified_chunks for p in seen] == [0, *range(1, 257), 256]
+    finally:
+        await stop(server)
+    print(
+        "Installed public download API passed: 8 MiB distinct chunks, cancellation, callback failure, verified resume and typed progress."
+    )
+
+
 async def transfer_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
     """Restart both CLI processes; exact budgets prove no verified chunk is resent."""
     from aethermesh_core.network import TransferStore
@@ -483,6 +609,7 @@ async def smoke() -> None:
         await content_smoke(peer, pki, pins, cwd)
         await transfer_smoke(peer, pki, pins, cwd)
         await bundle_smoke(peer, pki, pins, cwd)
+        await download_api_smoke(peer, pki, pins, cwd)
     print(
         "Installed CLI loopback acceptance passed: status, fingerprint, pin/project rejection, unavailable peer, deadline."
     )

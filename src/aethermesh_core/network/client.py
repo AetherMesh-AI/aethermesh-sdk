@@ -430,9 +430,10 @@ class PeerClient:
         failure: PeerError = ConnectionClosed("The peer session ended.")
         try:
             while True:
-                message = await asyncio.wait_for(
-                    read_frame(reader), self._limits.io_timeout
-                )
+                # Keep the read in this task: Python 3.11 wait_for can swallow
+                # external cancellation when its child completes concurrently.
+                async with asyncio.timeout(self._limits.io_timeout):
+                    message = await read_frame(reader)
                 request_id, result = self._reply(message)
                 future = self._pending.get(request_id)
                 if future is not None and not future.done():
