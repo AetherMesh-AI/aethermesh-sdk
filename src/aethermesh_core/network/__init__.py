@@ -4,6 +4,8 @@ Nothing connects, listens, generates credentials or starts background work on
 import. Existing ``aethermesh_core`` local prototype imports remain compatible.
 """
 
+from .bundle import BundleInfo, inspect_bundle
+from .bundle_export import export_bundle
 from .client import PeerClient
 from .config import Limits, PeerEndpoint, TLSIdentity, certificate_fingerprint
 from .content import CONTENT_OPERATION, MAX_CONTENT_BYTES, ContentRef, ContentStore
@@ -40,6 +42,7 @@ __all__ = [
     "ROUTER_EVALUATION_OPERATION",
     "SUPPORTED_PROTOCOL_VERSIONS",
     "AuthenticationError",
+    "BundleInfo",
     "ConnectionClosed",
     "ContentRef",
     "ContentStore",
@@ -61,6 +64,8 @@ __all__ = [
     "TransferStore",
     "certificate_fingerprint",
     "evaluation_task",
+    "export_bundle",
     "hardware_profile",
+    "inspect_bundle",
     "load_node_profile",
 ]

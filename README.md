@@ -141,3 +141,6 @@ self-improving model platform. Default SDK connections enable no contribution.
 For explicit, bounded, resumable opaque-file exchange, see
 [resumable content](docs/resumable-content.md). The 8-MiB acceptance target does not
 provide Git import, publisher authorization or general repository synchronization.
+
+[Trusted bundle export and header inspection](docs/bundle-exchange.md) can prepare
+one pinned local branch for opaque peer transfer without importing received packs.
