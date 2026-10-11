@@ -152,3 +152,7 @@ Python applications can use the public [resumable-download API](docs/download-ap
 The [durable local learning-state utility](docs/durable-learning-state.md) supports
 bounded job/checkpoint recovery and coordinator fencing for a separate learning
 service. It does not train models or provide distributed consensus.
+
+The separate [numeric-expert demo](docs/numeric-expert-demo.md) fits a synthetic
+regression model with durable restart, independently recomputed evaluation,
+promotion and rollback. It uses local unsigned evidence and no replicated coordination.
