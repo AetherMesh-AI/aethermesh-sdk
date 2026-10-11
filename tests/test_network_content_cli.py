@@ -26,7 +26,11 @@ class ContentCLIParserTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 2)
         self.assertNotIn("private-cert.pem", stderr.getvalue())
         args.extend(["--sha256", "a" * 64, "--size", "1", "--output", "chosen"])
-        for failure, expected in ((None, 0), (FileExistsError("private path"), 1)):
+        for failure, expected in (
+            (None, 0),
+            (FileExistsError("private path"), 1),
+            (OSError("private path"), 1),
+        ):
             stderr = io.StringIO()
             with (
                 patch.object(cli, "_fetch", AsyncMock(side_effect=failure)) as fetch,
@@ -36,7 +40,12 @@ class ContentCLIParserTests(unittest.TestCase):
                 fetch.assert_awaited_once()
             if failure:
                 self.assertEqual(
-                    json.loads(stderr.getvalue()), {"error": "output_exists"}
+                    json.loads(stderr.getvalue()),
+                    {
+                        "error": "output_exists"
+                        if isinstance(failure, FileExistsError)
+                        else "local_io_error"
+                    },
                 )
 
 

@@ -8,6 +8,7 @@ package. No fixture or certificate is persisted beyond this run.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import runpy
@@ -15,6 +16,7 @@ import socket
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import aethermesh_core
 
@@ -43,6 +45,94 @@ async def command(*args: str, cwd: Path) -> tuple[int | None, bytes, bytes]:
         await stop(process)
 
 
+async def content_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
+    """Installed CLI transfers one selected binary file; never executes it."""
+    source = cwd / "selected.bin"
+    blob = bytes(range(256)) * 128
+    source.write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    server = await asyncio.create_subprocess_exec(
+        peer,
+        "serve",
+        "--certificate",
+        str(pki.server.certificate),
+        "--private-key",
+        str(pki.server.private_key),
+        "--trust-store",
+        str(pki.ca),
+        "--allow-peer",
+        pins[1],
+        "--project",
+        "installed-content",
+        "--share-file",
+        str(source),
+        "--content-budget",
+        str(len(blob)),
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        assert server.stdout is not None
+        ready = json.loads(await asyncio.wait_for(server.stdout.readline(), 10))
+        reference = {
+            "project": "installed-content",
+            "sha256": digest,
+            "size": len(blob),
+        }
+        assert ready["content"] == [reference]
+        assert ready["content_budget_bytes"] == len(blob)
+        args = [
+            peer,
+            "fetch",
+            "--certificate",
+            str(pki.client.certificate),
+            "--private-key",
+            str(pki.client.private_key),
+            "--trust-store",
+            str(pki.ca),
+            "--peer-fingerprint",
+            pins[0],
+            "--project",
+            "installed-content",
+            "--port",
+            str(ready["port"]),
+            "--sha256",
+            digest,
+            "--size",
+            str(len(blob)),
+        ]
+        output = cwd / "received.bin"
+        code, out, err = await command(*args, "--output", str(output), cwd=cwd)
+        assert code == 0 and not err
+        assert json.loads(out) == {
+            **reference,
+            "saved": True,
+            "integrity_verified": True,
+            "publisher_authorized": False,
+        }
+        assert output.read_bytes() == blob and output.stat().st_mode & 0o777 == 0o600
+        assert source.read_bytes() == blob
+        for target, error in (
+            (output, "output_exists"),
+            (cwd / "budget-exhausted", "remote_error"),
+        ):
+            code, out, err = await command(*args, "--output", str(target), cwd=cwd)
+            assert code == 1 and not out and json.loads(err) == {"error": error}
+        assert output.read_bytes() == blob and not (cwd / "budget-exhausted").exists()
+        alias = cwd / "alias"
+        alias.symlink_to(output)
+        code, out, err = await command(*args, "--output", str(alias), cwd=cwd)
+        assert code == 1 and not out and json.loads(err) == {"error": "output_exists"}
+        assert alias.is_symlink() and output.read_bytes() == blob
+        assert not list(cwd.glob(".aethermesh-content-*"))
+    finally:
+        await stop(server)
+    print(
+        "Installed small-content acceptance passed: 32 KiB binary integrity, private output, no overwrite/symlink following, finite budget."
+    )
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -52,7 +142,7 @@ async def smoke() -> None:
     )
     fixture = runpy.run_path(str(ROOT / "tests" / "network_test_support.py"))["TestPKI"]
     with tempfile.TemporaryDirectory(prefix="peer-installed-tls-") as directory:
-        cwd = Path(directory)
+        cwd = Path(directory).resolve()
         pki = fixture.create(cwd / "pki")
         pins = []
         for identity in (pki.server, pki.client):
@@ -171,6 +261,7 @@ async def smoke() -> None:
                     await stalled.wait_closed()
         finally:
             await stop(server)
+        await content_smoke(peer, pki, pins, cwd)
     print(
         "Installed CLI loopback acceptance passed: status, fingerprint, pin/project rejection, unavailable peer, deadline."
     )

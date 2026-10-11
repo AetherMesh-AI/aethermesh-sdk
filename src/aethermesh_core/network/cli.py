@@ -177,6 +177,7 @@ async def _serve(arguments: argparse.Namespace) -> None:
         }
         if content_store is not None:
             readiness["content"] = [ref.to_dict() for ref in content_store.references]
+            readiness["content_budget_bytes"] = arguments.content_budget
         if node_profile is not None:
             readiness["node"] = node_profile.to_dict()
         print(json.dumps(readiness, sort_keys=True), flush=True)
@@ -257,7 +258,7 @@ async def _fetch(arguments: argparse.Namespace) -> None:
     )
 
 
-def _failure(error: Exception) -> str:
+def _failure(error: Exception, *, content: bool = False) -> str:
     # Never include exception strings, supplied paths/arguments or peer text.
     if isinstance(error, FileExistsError):
         return "output_exists"
@@ -273,6 +274,8 @@ def _failure(error: Exception) -> str:
         return "remote_error"
     if isinstance(error, ValueError):
         return "invalid_configuration"
+    if content and isinstance(error, OSError):
+        return "local_io_error"
     return "peer_unavailable"
 
 
@@ -305,7 +308,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
         else:
-            print(json.dumps({"error": _failure(exc)}, sort_keys=True), file=sys.stderr)
+            print(
+                json.dumps(
+                    {"error": _failure(exc, content=arguments.command == "fetch")},
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
         return 1
     return 0
 

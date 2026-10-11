@@ -23,6 +23,7 @@ def selected_parent(path: Path) -> Iterator[tuple[int, str]]:
     if (
         os.name != "posix"
         or not hasattr(os, "O_NOFOLLOW")
+        or not hasattr(os, "O_DIRECTORY")
         or os.open not in os.supports_dir_fd
         or os.link not in os.supports_dir_fd
     ):
