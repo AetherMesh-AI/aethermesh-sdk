@@ -156,6 +156,83 @@ class FragmentFileTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     os.fstat(fd)
 
+    def test_actual_input_descriptor_closes_on_read_and_stat_failures(self):
+        read = os.read
+        for mode in ("read", "stat"):
+            observed = []
+
+            def capture(fd, count, mode=mode, observed=observed):
+                observed.append(fd)
+                if mode == "read":
+                    raise OSError("injected read error")
+                return read(fd, count)
+
+            with patch("aethermesh_core.artifact_files.os.read", side_effect=capture):
+                if mode == "stat":
+                    with (
+                        patch(
+                            "aethermesh_core.artifact_files.os.stat",
+                            side_effect=OSError("injected stat error"),
+                        ),
+                        self.assertRaises(OSError),
+                    ):
+                        self.verify()
+                else:
+                    with self.assertRaises(OSError):
+                        self.verify()
+            self.assertTrue(observed)
+            for fd in set(observed):
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+
+    def test_final_return_cancellation_closes_actual_input(self):
+        from aethermesh_core.artifact_files import _read_fragment
+
+        completed = []
+        descriptors = []
+
+        def observe(fd, *args):
+            descriptors.append(fd)
+            result = _read_fragment(fd, *args)
+            completed.append(True)
+            return result
+
+        def cancel():
+            if completed:
+                raise InterruptedError("cancel just before result")
+
+        with (
+            patch("aethermesh_core.artifact_files._read_fragment", side_effect=observe),
+            self.assertRaises(InterruptedError),
+        ):
+            self.verify(check_cancel=cancel)
+        self.assertEqual(len(descriptors), 1)
+        with self.assertRaises(OSError):
+            os.fstat(descriptors[0])
+
+    def test_same_size_mutation_of_already_read_bytes_is_rejected(self):
+        read = os.read
+        changed = []
+        descriptors = []
+
+        def mutate(fd, count):
+            descriptors.append(fd)
+            data = read(fd, count)
+            if not changed:
+                changed.append(True)
+                with self.path.open("r+b") as stream:
+                    stream.write(bytes([self.pkg.fragments[4][0] ^ 1]))
+            return data
+
+        with (
+            patch("aethermesh_core.artifact_files.os.read", side_effect=mutate),
+            self.assertRaisesRegex(ValueError, "changed"),
+        ):
+            self.verify()
+        self.assertTrue(descriptors)
+        with self.assertRaises(OSError):
+            os.fstat(descriptors[0])
+
     def test_maximum_current_fragment_has_bounded_python_allocations(self):
         pkg = package(bytes(range(256)) * 32768)
         self.path.write_bytes(pkg.fragments[0])

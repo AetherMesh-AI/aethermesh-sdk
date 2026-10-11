@@ -588,6 +588,7 @@ async def artifact_smoke(pki: Any, cwd: Path) -> None:
         publish_artifact,
     )
     from aethermesh_core.artifact_files import verify_fragment_file
+    from aethermesh_core.artifact_stream import StagingQuota, publish_artifact_files
     from aethermesh_core.network import (
         PeerEndpoint,
         PeerService,
@@ -666,6 +667,28 @@ async def artifact_smoke(pki: Any, cwd: Path) -> None:
         )
         assert publication.integrity_verified and not publication.publisher_authorized
         assert publication.output.read_bytes() == source
+        selected_files = []
+        for selected_index in (0, 2, 4, 5):
+            path = (
+                result.output
+                if selected_index == index
+                else cwd / f"local-fragment-{selected_index}"
+            )
+            if selected_index != index:
+                path.write_bytes(package.fragments[selected_index])
+            selected_files.append((selected_index, path))
+        quota = StagingQuota(max_bytes=len(source), max_jobs=1)
+        streamed = publish_artifact_files(
+            manifest,
+            tuple(selected_files),
+            cwd / "streamed-output",
+            expected_digest=manifest.digest,
+            max_read_bytes=32 * 1024 * 1024,
+            staging=quota,
+        )
+        assert streamed.output.read_bytes() == source
+        assert streamed.integrity_verified and not streamed.publisher_authorized
+        assert quota.usage().bytes == 0 and not quota.usage().blocked
     finally:
         await service.close()
 

@@ -150,6 +150,58 @@ suitability. Installed-wheel loopback acceptance verifies a downloaded fragment
 through this API before reconstruction. Streaming packaging/reconstruction,
 manifest pages and live retained-storage admission remain subsequent work.
 
+## Streaming local reconstruction and staging admission
+
+`aethermesh_core.artifact_stream.publish_artifact_files` reconstructs directly
+from exactly four explicitly selected local fragment paths per stripe. It keeps
+bounded coding blocks and one stripe's descriptors, rather than collecting whole
+fragments or the original in memory. Original/fragment/manifest size ceilings
+remain unchanged. File-backed packaging and larger/paged manifests remain future
+work.
+
+Supply a trusted artifact root, `max_read_bytes`, and an explicit shared
+`StagingQuota(max_bytes=..., max_jobs=...)`. The function admits metadata/index
+shape and its logical read cost before I/O: **twice the sum of selected fragment
+sizes plus the original size**. The first pass verifies each selected input
+before decoding, the second decodes 32 KiB coding blocks, and the final pass
+verifies the staged original. Regenerated data/parity references, zero padding,
+input metadata/path stability, and complete original length/hash must all match.
+Short reads/writes preserve boundaries. These read counts are not physical disk,
+CPU-time or total-memory budgets.
+
+The same quota object must be reused across concurrent operations in its caller's
+resource scope. It atomically admits the full original's logical staging size
+and one job before creating a private temporary file; over-budget calls fail
+without waiting. Configurable ceilings are at most 32 MiB staging, four jobs,
+and 32 MiB logical reads per call. This is **process-local admission**, not a
+durable cross-process ledger, actual filesystem-space reservation, retained-output
+accounting, or a security boundary. Separate quota instances do not coordinate.
+
+After verification, the function fsyncs the private file and checks cancellation
+before an atomic no-overwrite hard link. Publication keeps the existing integrity-
+only result, with publisher authorization false. Disk-full errors/cancellation
+before linking leave no destination when cleanup succeeds. A competing destination
+is preserved. An error after linking can leave a committed destination. Uncertain
+temporary-file close/unlink blocks all new admissions on that quota; callers must
+inspect/reconcile files before explicitly replacing it. There is no automatic
+reset, overwriting, scavenging or deletion of unrelated files.
+
+Crashes/power loss can leave a private `.aethermesh-stage-*` file. The in-memory
+quota does not survive restart or discover such files; durable accounting and
+recovery must precede unattended hosting. There is no power-loss publication or
+remote retention guarantee. Selected directories remain trusted POSIX paths;
+callbacks are trusted caller code, and this is not protection against hostile
+same-user modification. Regular filesystem calls may stall, so cancellation has
+no hard latency guarantee.
+
+Tests cover all 15 four-of-six subsets, multiple stripes/padding, early read/quota
+admission, concurrent reservations, short I/O, corrupt/unsafe/mutating inputs,
+disk-full/write failure, final cancellation, publication races and uncertain
+cleanup. An 8 MiB recovery is checked against a 2 MiB traced Python-allocation
+ceiling after fixtures exist; that excludes native memory/RSS and is not a small-
+ARM or training-memory claim. Installed-wheel loopback acceptance uses one fetched
+fragment plus three selected local fragments for streamed reconstruction.
+
 ## Repair, privacy, and next slices
 
 `repair_artifact_fragments` performs one explicit local calculation. It requires
@@ -173,7 +225,8 @@ private dataset, user model, credential or real user key is required by tests.
 
 Feature-sized sequence after independent review of this foundation:
 
-1. Streaming stripe packaging/recovery with bounded RAM/temp-disk, cancellation,
+1. Streaming packaging and larger-artifact recovery with bounded RAM/temp-disk,
+   cancellation,
    aggregate host quotas, immutable retained-object inventory, and explicit
    retention/deletion receipts. Raise artifact size only with these bounds tested.
 2. Bounded deduplicated repair queue with leases, retry backoff/jitter, per-job and
