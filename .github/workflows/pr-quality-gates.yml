@@ -220,6 +220,7 @@ jobs:
           /tmp/aethermesh-install-check/bin/python -m pip install --force-reinstall dist/*.whl
           /tmp/aethermesh-install-check/bin/aethermesh-core --help
           /tmp/aethermesh-install-check/bin/python -I examples/sdk_smoke.py
+          /tmp/aethermesh-install-check/bin/python -I scripts/peer_install_smoke.py
 
   python-workflow-security-check:
     name: Python - Workflow Security Check

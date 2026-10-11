@@ -91,6 +91,40 @@ read the assigned port from that record. The service runs in the foreground;
 Ctrl+C stops it. Omit `--enable-echo` for status-only behavior. Hosting is always
 an explicit action.
 
+The installed CLI can check a configured peer without copying an example:
+
+```sh
+aethermesh-peer fingerprint --certificate SERVER_CERT.pem
+aethermesh-peer check \
+  --certificate CLIENT_CERT.pem --private-key CLIENT_KEY.pem \
+  --trust-store CA.pem --peer-fingerprint SERVER_LEAF_SHA256 \
+  --project PROJECT_ID --host 127.0.0.1 --port 7443 \
+  --server-name localhost --timeout 5
+```
+
+`fingerprint` only reads the selected certificate and prints its SHA-256 DER
+fingerprint with `trust_established: false`. Verify the certificate independently;
+printing a hash does not enroll a peer or establish publisher authority.
+
+`check` connects once, negotiates, requests status, verifies it against the
+negotiated facts, closes the session, and prints one JSON record containing
+`project`, `fingerprint`, `protocol_version`, `capabilities`, and `status: "ok"`.
+Capabilities describe enabled operations, not verified capacity or inference.
+It starts no listener, shares no saved node profile or hardware, writes no
+configuration, and does not retry. Optional `--expected-node-id` binds a
+self-reported server ID to the configured certificate pin; it is not attestation.
+
+`--timeout` is a finite total connection/status deadline in seconds, greater than
+zero and at most 3600 (default 10). The SDK's own per-phase ceilings still apply;
+shutdown cleanup may add a bounded delay after a deadline. Exit codes are 0 for
+success, 1 for an operation/configuration failure, 2 for invalid command syntax,
+and 130 for an interrupted diagnostic. Existing `serve` exit behavior is unchanged.
+Failure JSON goes to stderr with a static `error` code: `authentication_failed`,
+`timeout`, `protocol_error`, `connection_closed`, `remote_error`,
+`invalid_configuration`, or `peer_unavailable`. No supplied values or remote
+exception text are repeated. Some causes cannot be distinguished remotely:
+project rejection and an unavailable endpoint can both close the connection.
+
 In a separate process, using the installed package:
 
 ```sh
@@ -337,6 +371,13 @@ for duplicate claims. The ordinary unittest suite discovers these tests.
 PYTHONPATH=src python -m unittest \
   tests.test_network_integration tests.test_network_identity_integration -v
 ```
+
+The build/install gate also runs `scripts/peer_install_smoke.py` with the wheel
+environment's isolated Python outside the checkout. It invokes installed service,
+check and fingerprint commands in separate processes, with disposable TLS
+fixtures. It verifies a status-only capability report, incorrect pins/projects,
+a non-listening loopback endpoint, and a peer that stalls the TLS handshake.
+This proves installed CLI loopback usability, not two-machine or Internet access.
 
 Tests require the installed official `openssl` CLI and TLS 1.3 in Python's SSL
 module. `tests/network_test_support.py` generates a short-lived test CA and
