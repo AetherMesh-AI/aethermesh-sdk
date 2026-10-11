@@ -233,7 +233,7 @@ class StreamRecoveryTests(unittest.TestCase):
     def test_interrupt_after_owned_creation_closes_specific_descriptor(self):
         observed = []
 
-        def interrupt(frame, event, arg):
+        def interrupt(frame, event, _arg):
             if (
                 event == "line"
                 and frame.f_code is publish_artifact_files.__code__
