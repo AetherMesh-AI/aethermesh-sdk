@@ -510,3 +510,39 @@ class ClientIdentityTests(ClientStreamTestCase):
         ):
             with self.subTest(result=changed), self.assertRaises(ProtocolError):
                 self.client._validate_status(changed, peer, ("status",))
+
+
+class ReceiverCancellationRaceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ready_frame_cannot_swallow_receiver_cancellation(self):
+        client = PeerClient(IDENTITY, project_id="test")
+        writer = writer_mock()
+        client._writer = writer
+        client._next_id = 2
+        blocked = asyncio.Event()
+        reads = 0
+
+        async def completing_read(reader):
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                # Queue cancellation as the frame completes, before a separate
+                # wait_for child-result callback can resume its receiver task.
+                asyncio.get_running_loop().call_soon(receiver.cancel)
+                return {"type": "result", "id": 1, "result": {}}
+            await blocked.wait()
+            raise AssertionError("the second read must be cancelled")
+
+        with patch("aethermesh_core.network.client.read_frame", completing_read):
+            receiver = asyncio.create_task(
+                client._receive(asyncio.StreamReader(), writer)
+            )
+            client._receiver = receiver
+            try:
+                done, _ = await asyncio.wait({receiver}, timeout=0.2)
+                self.assertIn(receiver, done)
+                self.assertTrue(receiver.cancelled())
+                self.assertFalse(client.connected)
+                writer.close.assert_called()
+            finally:
+                receiver.cancel()
+                await asyncio.gather(receiver, return_exceptions=True)

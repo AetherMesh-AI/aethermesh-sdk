@@ -131,7 +131,10 @@ responsibility, not part of the SDK resource guarantee.
 
 Tests cover immutable progress, cached/corrupt resume, empty input, callback
 failure, cancellation before publication, callback timeout, delayed cleanup,
-output races and post-publication failures. A real TLS pressure test deliberately
+output races and post-publication failures. A deterministic receiver regression
+checks cancellation concurrent with a completed frame on Python 3.11; reads use
+a timeout context in the receiver task, avoiding a separately scheduled read
+whose completion can hide cancellation. A real TLS pressure test deliberately
 saturates the owned session with bounded concurrent test requests, cancels the API
 at actual transport backpressure, verifies resource cleanup and an unrelated
 session, then resumes explicitly. Normal API downloads remain sequential.
