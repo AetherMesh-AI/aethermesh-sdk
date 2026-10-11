@@ -162,20 +162,24 @@ async def _check(arguments: argparse.Namespace) -> None:
     async with PeerClient(identity, project_id=arguments.project) as client:
         async with asyncio.timeout(timeout):
             await client.connect(endpoint)
+            # Freeze negotiated facts before awaiting a reply: the receive task
+            # may observe EOF immediately after delivering that reply.
+            version = client.protocol_version
+            capabilities = client.capabilities
+            project = client.project_id
             status = await client.request("status", timeout=timeout)
             # V2 status is checked by PeerClient. Legacy V1 needs an exact check
             # here before diagnostics claim agreement with negotiated facts.
-            if client.protocol_version == 1 and (
+            if version == 1 and (
                 type(status.get("protocol_version")) is not int
-                or status
-                != {"protocol_version": 1, "capabilities": list(client.capabilities)}
+                or status != {"protocol_version": 1, "capabilities": list(capabilities)}
             ):
                 raise ProtocolError("invalid legacy status")
             report = {
-                "project": client.project_id,
+                "project": project,
                 "fingerprint": endpoint.fingerprint,
-                "protocol_version": client.protocol_version,
-                "capabilities": list(client.capabilities),
+                "protocol_version": version,
+                "capabilities": list(capabilities),
                 "status": "ok",
             }
     print(json.dumps(report, sort_keys=True))

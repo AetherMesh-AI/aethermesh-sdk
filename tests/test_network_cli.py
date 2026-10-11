@@ -427,3 +427,143 @@ class PeerDiagnosticsMainTests(unittest.TestCase):
                 cli.main(PeerDiagnosticsTests().args(*extra))
             self.assertEqual(caught.exception.code, 2)
             self.assertNotIn("secret", stderr.getvalue())
+
+
+class PeerStatusCloseTests(unittest.IsolatedAsyncioTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        from tests.network_test_support import TestPKI
+
+        cls.directory = tempfile.TemporaryDirectory(prefix="diagnostic-close-tls-")
+        cls.addClassCleanup(cls.directory.cleanup)
+        cls.pki = TestPKI.create(Path(cls.directory.name))
+
+    async def test_status_then_immediate_tls_close(self) -> None:
+        from aethermesh_core.network.protocol import (
+            close_writer,
+            read_frame,
+            write_frame,
+        )
+
+        for version, malformed in ((1, False), (2, False), (1, True)):
+            completed = asyncio.Event()
+
+            async def respond(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+                selected: int = version,
+                bad: bool = malformed,
+                done: asyncio.Event = completed,
+            ) -> None:
+                try:
+                    await read_frame(reader)
+                    welcome = {
+                        "type": "welcome",
+                        "project": "test",
+                        "version": selected,
+                        "capabilities": ["status"],
+                    }
+                    if selected == 2:
+                        welcome["node"] = None
+                    await write_frame(writer, welcome)
+                    if selected == 2:
+                        await read_frame(reader)
+                        await write_frame(writer, {"type": "ready"})
+                    request = await read_frame(reader)
+                    result = {
+                        "protocol_version": True if bad else selected,
+                        "capabilities": ["status"],
+                    }
+                    if selected == 2:
+                        result["node"] = None
+                    await write_frame(
+                        writer,
+                        {"type": "result", "id": request["id"], "result": result},
+                    )
+                finally:
+                    await close_writer(writer)
+                    done.set()
+
+            server = await asyncio.start_server(
+                respond, "127.0.0.1", 0, ssl=self.pki.server.identity().server_context()
+            )
+            try:
+                args = cli._parser().parse_args(
+                    PeerDiagnosticsTests().args(
+                        "--certificate",
+                        str(self.pki.client.certificate),
+                        "--private-key",
+                        str(self.pki.client.private_key),
+                        "--trust-store",
+                        str(self.pki.ca),
+                        "--peer-fingerprint",
+                        cli.certificate_fingerprint(self.pki.server.certificate),
+                        "--port",
+                        str(server.sockets[0].getsockname()[1]),
+                    )
+                )
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    if malformed:
+                        with self.assertRaises(cli.ProtocolError):
+                            await cli._check(args)
+                    else:
+                        await cli._check(args)
+                if malformed:
+                    self.assertEqual(output.getvalue(), "")
+                else:
+                    report = json.loads(output.getvalue())
+                    self.assertEqual(report["protocol_version"], version)
+                    self.assertEqual(report["capabilities"], ["status"])
+                    self.assertEqual(report["status"], "ok")
+            finally:
+                server.close()
+                await asyncio.wait_for(completed.wait(), 5)
+                await asyncio.wait_for(server.wait_closed(), 5)
+
+    async def test_eof_clearing_live_properties_cannot_change_report_or_skip_validation(
+        self,
+    ) -> None:
+        for malformed in (False, True):
+            client = Mock(
+                project_id="test", protocol_version=1, capabilities=("status",)
+            )
+            client.connect = AsyncMock()
+
+            async def delivered(
+                *args: object,
+                bad: bool = malformed,
+                session: Mock = client,
+                **kwargs: object,
+            ) -> dict[str, object]:
+                session.protocol_version = None
+                session.capabilities = ()
+                return {
+                    "protocol_version": True if bad else 1,
+                    "capabilities": ["status"],
+                }
+
+            client.request = AsyncMock(side_effect=delivered)
+            client.__aenter__ = AsyncMock(return_value=client)
+            client.__aexit__ = AsyncMock(return_value=False)
+            output = io.StringIO()
+            with (
+                patch.object(cli, "PeerClient", return_value=client),
+                redirect_stdout(output),
+            ):
+                if malformed:
+                    with self.assertRaises(cli.ProtocolError):
+                        await cli._check(
+                            cli._parser().parse_args(PeerDiagnosticsTests().args())
+                        )
+                else:
+                    await cli._check(
+                        cli._parser().parse_args(PeerDiagnosticsTests().args())
+                    )
+            if malformed:
+                self.assertEqual(output.getvalue(), "")
+            else:
+                self.assertEqual(json.loads(output.getvalue())["protocol_version"], 1)
+                self.assertEqual(
+                    json.loads(output.getvalue())["capabilities"], ["status"]
+                )

@@ -104,13 +104,21 @@ aethermesh-peer check \
 
 `fingerprint` only reads the selected certificate and prints its SHA-256 DER
 fingerprint with `trust_established: false`. Verify the certificate independently;
-printing a hash does not enroll a peer or establish publisher authority.
+printing a hash does not enroll a peer or establish publisher authority. Input is
+limited to 64 KiB and 1–16 PEM certificate blocks with whitespace only outside
+the blocks. Each block must parse as one complete X.509 DER certificate; other
+PEM types, malformed DER and trailing bytes are rejected. For a PEM chain, the
+first certificate is fingerprinted. Parsing does not validate dates, signatures,
+chain ordering, hostname, trust or publisher authority.
 
 `check` connects once, negotiates, requests status, verifies it against the
 negotiated facts, closes the session, and prints one JSON record containing
 `project`, `fingerprint`, `protocol_version`, `capabilities`, and `status: "ok"`.
 Capabilities describe enabled operations, not verified capacity or inference.
-It starts no listener, shares no saved node profile or hardware, writes no
+A successful report means the diagnostic exchange completed; the peer can close
+immediately afterward. Reporting uses the immutable negotiation snapshot even
+when EOF arrives together with status. It starts no listener, shares no saved
+node profile or hardware, writes no
 configuration, and does not retry. Optional `--expected-node-id` binds a
 self-reported server ID to the configured certificate pin; it is not attestation.
 

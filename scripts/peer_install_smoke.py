@@ -63,6 +63,19 @@ async def smoke() -> None:
             record = json.loads(out)
             assert record["trust_established"] is False
             pins.append(record["sha256"])
+        malformed = cwd / "not-a-certificate.pem"
+        malformed.write_text(
+            "-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n",
+            encoding="ascii",
+        )
+        code, out, err = await command(
+            peer, "fingerprint", "--certificate", str(malformed), cwd=cwd
+        )
+        assert (
+            code == 1
+            and not out
+            and json.loads(err) == {"error": "authentication_failed"}
+        )
         server = await asyncio.create_subprocess_exec(
             peer,
             "serve",

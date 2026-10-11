@@ -125,15 +125,52 @@ class TLSIdentityTests(unittest.TestCase):
 
     def test_fingerprint_hashes_first_leaf_der_in_a_pem_chain(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "identity.pem"
-            path.write_text(
-                "-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n"
-                "-----BEGIN CERTIFICATE-----\neHl6\n-----END CERTIFICATE-----\n",
-                encoding="ascii",
-            )
+            root = Path(temporary)
+            pki = TestPKI.create(root)
+            leaf = pki.server.certificate.read_text(encoding="ascii")
+            ca = pki.ca.read_text(encoding="ascii")
+            path = root / "chain.pem"
+            path.write_text(leaf + ca, encoding="ascii")
             self.assertEqual(
-                certificate_fingerprint(path), hashlib.sha256(b"abc").hexdigest()
+                certificate_fingerprint(path),
+                hashlib.sha256(ssl.PEM_cert_to_DER_cert(leaf)).hexdigest(),
             )
+            for invalid in (
+                "-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n",
+                "-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----\n",
+                leaf + "-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n",
+                leaf + pki.server.private_key.read_text(encoding="ascii"),
+                leaf + "-----BEGIN CERTIFICATE-----",
+                "unexpected text" + leaf,
+                leaf * 17,
+                " " * 65537,
+            ):
+                path.write_text(invalid, encoding="ascii")
+                with (
+                    self.subTest(invalid_length=len(invalid)),
+                    self.assertRaises(AuthenticationError),
+                ):
+                    certificate_fingerprint(path)
+            der = ssl.PEM_cert_to_DER_cert(leaf)
+            for invalid_der in (
+                b"abc",
+                b"",
+                b"\x30",
+                b"\x30\x80",
+                b"\x30\x81\x00",
+                b"\x30\x81\x01\x00",
+                b"\x30\x00",
+                b"\x30\x02\x01\x00",
+                der[:-1],
+                der + b"trailing",
+                der + der,
+            ):
+                path.write_text(ssl.DER_cert_to_PEM_cert(invalid_der), encoding="ascii")
+                with (
+                    self.subTest(der_length=len(invalid_der)),
+                    self.assertRaises(AuthenticationError),
+                ):
+                    certificate_fingerprint(path)
 
     def test_missing_bad_encoding_and_malformed_certificates_are_typed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
