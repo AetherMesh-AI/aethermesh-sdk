@@ -31,6 +31,8 @@ class ObservedService(PeerService):
         self.cancel_received = asyncio.Event()
         self.blocked_id = 0
         self.buffered_bytes = 0
+        self.cancelled_while_pressured = False
+        self.fetch_tasks: list[asyncio.Task[bytes]] = []
         self.responses: list[int] = []
         self.pressured_writers: list[asyncio.StreamWriter] = []
         self.sending = contextvars.ContextVar("sending", default=0)
@@ -59,6 +61,11 @@ class ObservedService(PeerService):
             ):
                 self.blocked_id = self.sending.get()
                 self.buffered_bytes = size
+                # Cancel synchronously at the actual flow-control boundary.
+                # Waiting for an observer event first permits the OS to drain
+                # this response before the observer gets its event-loop turn.
+                target = self.fetch_tasks[self.blocked_id - 1]
+                self.cancelled_while_pressured = target.cancel()
                 self.blocked.set()
             await original_drain()
 
@@ -131,16 +138,18 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                     )
                     for _ in range(count)
                 ]
+                service.fetch_tasks = tasks
                 await asyncio.wait_for(service.blocked.wait(), 5)
                 self.assertGreater(service.buffered_bytes, 0)
                 cancelled_id = service.blocked_id
-                self.assertNotIn(cancelled_id, service.responses)
-                tasks[cancelled_id - 1].cancel()
+                self.assertTrue(service.cancelled_while_pressured)
                 with self.assertRaises(asyncio.CancelledError):
-                    await tasks[cancelled_id - 1]
+                    await asyncio.wait_for(tasks[cancelled_id - 1], 5)
                 await asyncio.wait_for(service.cancel_received.wait(), 5)
                 self.assertNotIn(cancelled_id, client._pending)
-                self.assertNotIn(cancelled_id, service.responses)
+                # The frame already owns the write. Cancellation interrupts
+                # the caller, while the server finishes that single frame.
+                # It may drain into kernel buffers even with reading paused.
                 # Restore ordinary sender throughput after observing pressure;
                 # receiver window sizing has not changed during the session.
                 for responding in service.pressured_writers:
