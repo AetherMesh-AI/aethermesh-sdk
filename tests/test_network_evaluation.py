@@ -396,7 +396,7 @@ class EvaluationTLSTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(limited.exception.code, "resource_limit")
         self.assertEqual(
             str(limited.exception),
-            "The peer has reached its evaluation resource limit.",
+            "The peer has reached its resource limit.",
         )
         self.assertTrue(client.connected)
         await client.close()

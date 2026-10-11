@@ -7,7 +7,8 @@ provider adapter; other applications can use it independently.
 **Current status: authenticated direct-peer foundation, no public network.**
 The SDK and optional headless service share a versioned peer protocol. Explicitly
 configured peers can exchange bounded status and opt-in echo requests over mutual
-TLS, with cancellation and timeouts. These are connectivity diagnostics, not AI
+TLS, with cancellation and timeouts. Opt-in [small content exchange](docs/content-exchange.md)
+adds project-scoped, hash-verified opaque bytes. Status and echo are diagnostics, not AI
 inference. Automatic discovery, NAT traversal, relays, streaming inference and
 peer-distributed releases are not implemented. Existing local contracts, reference
 execution, validation, provenance and the localhost development API remain.

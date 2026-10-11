@@ -6,6 +6,7 @@ import. Existing ``aethermesh_core`` local prototype imports remain compatible.
 
 from .client import PeerClient
 from .config import Limits, PeerEndpoint, TLSIdentity, certificate_fingerprint
+from .content import CONTENT_OPERATION, MAX_CONTENT_BYTES, ContentRef, ContentStore
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
@@ -31,11 +32,15 @@ from .protocol import PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
 from .service import PeerService
 
 __all__ = [
+    "CONTENT_OPERATION",
+    "MAX_CONTENT_BYTES",
     "PROTOCOL_VERSION",
     "ROUTER_EVALUATION_OPERATION",
     "SUPPORTED_PROTOCOL_VERSIONS",
     "AuthenticationError",
     "ConnectionClosed",
+    "ContentRef",
+    "ContentStore",
     "EvaluationBudget",
     "HardwareProfile",
     "Limits",
