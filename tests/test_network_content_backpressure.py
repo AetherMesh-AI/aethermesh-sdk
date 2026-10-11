@@ -108,6 +108,7 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 limits=Limits(max_inflight=count),
             )
             tasks: list[asyncio.Task[bytes]] = []
+            paused_transport: asyncio.Transport | None = None
             try:
                 await service.start()
                 await client.connect(
@@ -119,10 +120,11 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 )
                 writer = client._writer
                 assert writer is not None
-                writer.get_extra_info("socket").setsockopt(
-                    socket.SOL_SOCKET, socket.SO_RCVBUF, 4096
-                )
-                writer.transport.pause_reading()
+                # Pause the real socket reader, not only SSL application
+                # delivery. Keep the negotiated TCP receive window unchanged:
+                # shrinking it mid-session causes slow window recovery on Linux.
+                paused_transport = writer.transport._ssl_protocol._transport
+                paused_transport.pause_reading()
                 tasks = [
                     asyncio.create_task(
                         client.fetch_content(store.references[0], timeout=30)
@@ -139,17 +141,14 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(service.cancel_received.wait(), 5)
                 self.assertNotIn(cancelled_id, client._pending)
                 self.assertNotIn(cancelled_id, service.responses)
-                # Tiny buffers force the observation; restore throughput before
-                # recovery so Linux TCP window growth is not the test deadline.
-                writer.get_extra_info("socket").setsockopt(
-                    socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576
-                )
+                # Restore ordinary sender throughput after observing pressure;
+                # receiver window sizing has not changed during the session.
                 for responding in service.pressured_writers:
                     responding.get_extra_info("socket").setsockopt(
                         socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576
                     )
                     responding.transport.set_write_buffer_limits()
-                writer.transport.resume_reading()
+                paused_transport.resume_reading()
                 results = await asyncio.wait_for(
                     asyncio.gather(*tasks, return_exceptions=True), 30
                 )
@@ -179,8 +178,8 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                     await client.fetch_content(store.references[0])
                 self.assertEqual(exhausted.exception.code, "resource_limit")
             finally:
-                if client._writer is not None:
-                    client._writer.transport.resume_reading()
+                if paused_transport is not None:
+                    paused_transport.resume_reading()
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
