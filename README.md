@@ -57,7 +57,10 @@ authenticate connections, and advertised names/hardware remain self-reported.
 
 Use installed `aethermesh-peer check` for one-shot authenticated diagnostics and
 `aethermesh-peer fingerprint` to hash an explicitly selected certificate. Neither
-command creates identities, enrolls trust or starts a service.
+command creates identities, enrolls trust or starts a service. Explicit
+`serve --share-file PATH --content-budget BYTES` and `fetch --output NEW_FILE`
+provide [small-content CLI exchange](docs/content-exchange.md#installed-small-content-cli)
+with verified bytes and no-overwrite output; this is not repository sync.
 
 Start with the [network foundation guide](docs/network-foundation.md) for
 certificate/pin configuration, the installed SDK example, protocol contracts,
