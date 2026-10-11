@@ -587,6 +587,7 @@ async def artifact_smoke(pki: Any, cwd: Path) -> None:
         package_artifact,
         publish_artifact,
     )
+    from aethermesh_core.artifact_files import verify_fragment_file
     from aethermesh_core.network import (
         PeerEndpoint,
         PeerService,
@@ -635,6 +636,18 @@ async def artifact_smoke(pki: Any, cwd: Path) -> None:
             staging=cwd / "artifact-stage",
             output=cwd / "fragment",
             timeout=5,
+        )
+        observation = verify_fragment_file(
+            manifest,
+            index,
+            result.output,
+            expected_digest=manifest.digest,
+            max_read_bytes=len(fragment),
+        )
+        assert observation.transfer == store.manifest
+        assert observation.integrity_verified
+        assert (
+            not observation.publisher_authorized and not observation.retention_confirmed
         )
         received = result.output.read_bytes()
         assert result.integrity_verified and not result.publisher_authorized
