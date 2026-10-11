@@ -49,7 +49,9 @@ foundations. An advertised capability is not proof of remote AI execution.
    references exist; [small content exchange](content-exchange.md) adds opt-in
    bounded remote bytes with integrity checks. [Resumable opaque transfer](resumable-content.md) now supports up to 8 MiB,
    and [trusted local bundle export](bundle-exchange.md) prepares selected repository
-   bytes without received-pack ingestion. Adversarial distributed validation remains planned. A valid hash alone does not establish publisher authority.
+   bytes without received-pack ingestion. [Bounded opaque artifact packaging](artifact-storage.md) adds an opt-in 4+2
+   local erasure codec and placement simulator for synthetic/public bytes.
+   Adversarial distributed validation remains planned. A valid hash alone does not establish publisher authority.
 5. **Project-scoped source/build/update interfaces.** Represent project identity,
    source revisions, build requests/results, platform artifacts, release channels
    and verification decisions. Eidolon and AetherMesh share transport without
