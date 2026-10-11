@@ -116,6 +116,40 @@ Unknown outage/loss domain labels, duplicate node IDs, unknown/duplicate/out-of-
 assignments, repeated stripe failure domains and inconsistent unplaced indices
 are rejected rather than silently producing optimistic availability.
 
+## File-backed fragment verification
+
+`aethermesh_core.artifact_files.verify_fragment_file` is a read-only prerequisite
+for later retained storage and streaming recovery. Give it the artifact manifest,
+fragment index, explicitly selected local `Path`, trusted root digest, and a
+`max_read_bytes` budget. It checks logical size/budget before opening and regular
+file type/exact length before reading. It incrementally verifies the complete
+fragment hash and exact existing transport-manifest binding, with read requests
+of at most 32 KiB; short reads preserve transport chunk boundaries. Neither the
+whole fragment nor original artifact is loaded by this function.
+
+The function rejects symlink paths, parent traversal, nonregular files, observed
+truncation/mutation/replacement, bad hashes and transfer substitutions. It uses
+existing POSIX physical-directory protections, so unsupported platforms fail
+closed. Directories must be trusted; this is not a sandbox against a hostile
+same-user process. Cancellation is checked before opening, before reads and before
+return; a stalled filesystem call has no hard cancellation-latency guarantee.
+
+Its immutable result is an observation of bytes read during this call:
+`integrity_verified=True`, `publisher_authorized=False`,
+`retention_confirmed=False`. It is not a lease, reusable file capability, retained
+inventory record, or guarantee of future path contents. Reverify when consuming
+or serving a file. This utility neither reserves aggregate storage nor hosts,
+repairs, deletes, executes or encrypts anything. Existing artifact limits remain.
+
+Tests verify short-read chunking, admission before content I/O, rejected links
+and FIFOs, corruption/replacement/truncation, cancellation and descriptor cleanup.
+Verification of the largest currently producible default fragment (2 MiB) is
+checked against a 512 KiB traced Python-allocation ceiling, measured after fixture
+creation. That excludes native allocations/RSS and does not establish small-ARM
+suitability. Installed-wheel loopback acceptance verifies a downloaded fragment
+through this API before reconstruction. Streaming packaging/reconstruction,
+manifest pages and live retained-storage admission remain subsequent work.
+
 ## Repair, privacy, and next slices
 
 `repair_artifact_fragments` performs one explicit local calculation. It requires
