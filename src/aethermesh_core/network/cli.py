@@ -36,7 +36,9 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = _ArgumentParser(description="Run explicitly configured AetherMesh peer operations")
+    parser = _ArgumentParser(
+        description="Run explicitly configured AetherMesh peer operations"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser(
         "serve", help="serve in the foreground until interrupted"
