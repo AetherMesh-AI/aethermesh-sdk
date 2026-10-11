@@ -32,6 +32,7 @@ class ObservedService(PeerService):
         self.blocked_id = 0
         self.buffered_bytes = 0
         self.responses: list[int] = []
+        self.pressured_writers: list[asyncio.StreamWriter] = []
         self.sending = contextvars.ContextVar("sending", default=0)
 
     def _accept(
@@ -41,6 +42,7 @@ class ObservedService(PeerService):
         *,
         generation: object,
     ) -> None:
+        self.pressured_writers.append(writer)
         writer.get_extra_info("socket").setsockopt(
             socket.SOL_SOCKET, socket.SO_SNDBUF, 4096
         )
@@ -122,7 +124,9 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 )
                 writer.transport.pause_reading()
                 tasks = [
-                    asyncio.create_task(client.fetch_content(store.references[0]))
+                    asyncio.create_task(
+                        client.fetch_content(store.references[0], timeout=30)
+                    )
                     for _ in range(count)
                 ]
                 await asyncio.wait_for(service.blocked.wait(), 5)
@@ -135,12 +139,29 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(service.cancel_received.wait(), 5)
                 self.assertNotIn(cancelled_id, client._pending)
                 self.assertNotIn(cancelled_id, service.responses)
+                # Tiny buffers force the observation; restore throughput before
+                # recovery so Linux TCP window growth is not the test deadline.
+                writer.get_extra_info("socket").setsockopt(
+                    socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576
+                )
+                for responding in service.pressured_writers:
+                    responding.get_extra_info("socket").setsockopt(
+                        socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576
+                    )
+                    responding.transport.set_write_buffer_limits()
                 writer.transport.resume_reading()
                 results = await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True), 10
+                    asyncio.gather(*tasks, return_exceptions=True), 30
                 )
                 self.assertEqual(
                     sum(isinstance(item, asyncio.CancelledError) for item in results), 1
+                )
+                self.assertEqual(
+                    [type(item).__name__ for item in results],
+                    [
+                        "CancelledError" if index == cancelled_id else "bytes"
+                        for index in range(1, count + 1)
+                    ],
                 )
                 self.assertTrue(
                     all(
