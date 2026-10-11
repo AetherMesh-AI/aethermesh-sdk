@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import NoReturn
 
+from .bundle import inspect_bundle
+from .bundle_export import export_bundle
 from .client import PeerClient
 from .config import PeerEndpoint, TLSIdentity, certificate_fingerprint
 from .content import ContentRef, ContentStore
@@ -43,6 +45,21 @@ def _parser() -> argparse.ArgumentParser:
         description="Run explicitly configured AetherMesh peer operations"
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    bundle_inspect = commands.add_parser(
+        "bundle-inspect", help="inspect header claims without Git or decompression"
+    )
+    bundle_inspect.add_argument("--project", required=True)
+    bundle_inspect.add_argument("--file", required=True, type=Path)
+    bundle_inspect.add_argument("--sha256", required=True)
+    bundle_export = commands.add_parser(
+        "bundle-export", help="export one trusted local branch pinned to an OID"
+    )
+    bundle_export.add_argument("--project", required=True)
+    bundle_export.add_argument("--source", required=True, type=Path)
+    bundle_export.add_argument("--output", required=True, type=Path)
+    bundle_export.add_argument("--ref", required=True)
+    bundle_export.add_argument("--expected-oid", required=True)
+    bundle_export.add_argument("--timeout", type=float, default=15.0)
     serve = commands.add_parser(
         "serve", help="serve in the foreground until interrupted"
     )
@@ -368,6 +385,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             asyncio.run(_fetch(arguments))
         elif arguments.command == "fetch-transfer":
             asyncio.run(_fetch_transfer(arguments))
+        elif arguments.command == "bundle-export":
+            info = export_bundle(
+                arguments.source,
+                arguments.output,
+                project_id=arguments.project,
+                ref=arguments.ref,
+                expected_oid=arguments.expected_oid,
+                timeout=arguments.timeout,
+            )
+            print(json.dumps(info.to_dict(), sort_keys=True))
+        elif arguments.command == "bundle-inspect":
+            info = inspect_bundle(
+                read_selected(arguments.file, limit=MAX_TRANSFER_BYTES),
+                project_id=arguments.project,
+                expected_sha256=arguments.sha256,
+            )
+            print(json.dumps(info.to_dict(), sort_keys=True))
         else:
             print(
                 json.dumps(
@@ -392,7 +426,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     {
                         "error": _failure(
                             exc,
-                            content=arguments.command in {"fetch", "fetch-transfer"},
+                            content=arguments.command
+                            in {
+                                "fetch",
+                                "fetch-transfer",
+                                "bundle-export",
+                                "bundle-inspect",
+                            },
                         )
                     },
                     sort_keys=True,

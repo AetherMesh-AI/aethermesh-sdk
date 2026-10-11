@@ -137,7 +137,7 @@ async def transfer_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> Non
     """Restart both CLI processes; exact budgets prove no verified chunk is resent."""
     from aethermesh_core.network import TransferStore
 
-    blob = bytes(range(256)) * 32768  # Exact 8-MiB/256-chunk acceptance boundary.
+    blob = b"".join(bytes([index]) * 32768 for index in range(256))  # Distinct chunks.
     source = cwd / "transfer-source"
     source.write_bytes(blob)
     manifest = TransferStore("resume", blob, max_served_bytes=0).manifest
@@ -252,6 +252,103 @@ with checkpoint(Path(stage), manifest, resume=True) as directory:
     assert not list(stage.glob(".aethermesh-content-*"))
     print(
         "Installed resume acceptance passed: 8 MiB, process restart, crash recovery, exactly 252 missing chunks fetched, private verified output."
+    )
+
+
+async def bundle_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
+    """Export owned refs, transfer opaque bytes, inspect claims without ingestion."""
+    fixture = runpy.run_path(str(ROOT / "tests" / "bundle_test_support.py"))
+    source = cwd / "owned-source.git"
+    ref, oid = fixture["create_repository"](source)
+    original_ref = (source / ref).read_bytes()
+    bundle = cwd / "owned.bundle"
+    code, out, err = await command(
+        peer,
+        "bundle-export",
+        "--project",
+        "bundle-test",
+        "--source",
+        str(source),
+        "--ref",
+        ref,
+        "--expected-oid",
+        oid,
+        "--output",
+        str(bundle),
+        cwd=cwd,
+    )
+    assert code == 0 and not err
+    exported = json.loads(out)
+    assert exported["claimed_oid"] == oid and exported["pack_validated"] is False
+    assert exported["publisher_authorized"] is False
+    assert (source / ref).read_bytes() == original_ref
+    data = bundle.read_bytes()
+    server = await asyncio.create_subprocess_exec(
+        peer,
+        "serve",
+        "--project",
+        "bundle-test",
+        "--certificate",
+        str(pki.server.certificate),
+        "--private-key",
+        str(pki.server.private_key),
+        "--trust-store",
+        str(pki.ca),
+        "--allow-peer",
+        pins[1],
+        "--share-transfer",
+        str(bundle),
+        "--content-budget",
+        "1048576",
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        assert server.stdout is not None
+        ready = json.loads(await asyncio.wait_for(server.stdout.readline(), 10))
+        received = cwd / "received.bundle"
+        code, out, err = await command(
+            peer,
+            "fetch-transfer",
+            "--project",
+            "bundle-test",
+            "--certificate",
+            str(pki.client.certificate),
+            "--private-key",
+            str(pki.client.private_key),
+            "--trust-store",
+            str(pki.ca),
+            "--peer-fingerprint",
+            pins[0],
+            "--port",
+            str(ready["port"]),
+            "--manifest-sha256",
+            ready["manifest_sha256"],
+            "--staging",
+            str(cwd / "bundle-stage"),
+            "--output",
+            str(received),
+            cwd=cwd,
+        )
+        assert code == 0 and not err and received.read_bytes() == data
+        code, out, err = await command(
+            peer,
+            "bundle-inspect",
+            "--project",
+            "bundle-test",
+            "--file",
+            str(received),
+            "--sha256",
+            exported["sha256"],
+            cwd=cwd,
+        )
+        assert code == 0 and not err and json.loads(out) == exported
+        assert (source / ref).read_bytes() == original_ref
+    finally:
+        await stop(server)
+    print(
+        "Installed bundle acceptance passed: pinned owned export, peer transfer, bounded header claims; no pack ingestion."
     )
 
 
@@ -385,6 +482,7 @@ async def smoke() -> None:
             await stop(server)
         await content_smoke(peer, pki, pins, cwd)
         await transfer_smoke(peer, pki, pins, cwd)
+        await bundle_smoke(peer, pki, pins, cwd)
     print(
         "Installed CLI loopback acceptance passed: status, fingerprint, pin/project rejection, unavailable peer, deadline."
     )

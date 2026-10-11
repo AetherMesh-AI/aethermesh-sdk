@@ -161,8 +161,9 @@ symlink rejection, directory renames, concurrent resume, fsync failures, deadlin
 malicious responses, old capability whitelists and real TLS backpressure cancellation.
 This is loopback evidence, not Internet or two-machine proof.
 
-Git bundle packaging, quarantine pack import and publisher/channel signatures are
-separate future slices. In particular, compressed-pack size does not bound object
+See [trusted bundle export and header inspection](bundle-exchange.md) for the
+bounded producer/inspection path. Quarantine pack import and publisher/channel
+signatures remain separate future slices. In particular, compressed-pack size does not bound object
 expansion. No pack ingestion should be added before enforceable subprocess CPU,
 memory and disk isolation is established and independently reviewed. Trusted
 branches and active application checkouts remain outside this feature.
