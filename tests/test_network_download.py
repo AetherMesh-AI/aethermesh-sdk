@@ -7,6 +7,7 @@ import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from aethermesh_core.network import (
@@ -140,16 +141,32 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             await self.fetch(timeout=0.05, on_progress=stalled)
         self.assertFalse(self.args["output"].exists())
         close = PeerClient.close
+        loop = asyncio.get_running_loop()
+        elapsed = 0.0
+        verified = asyncio.Event()
 
-        async def slow_close(client):
+        async def observe(progress):
+            if progress.phase == "verified":
+                verified.set()
+
+        async def expire_after_close(client):
+            nonlocal elapsed
+            self.assertTrue(verified.is_set())
             await close(client)
-            await asyncio.sleep(0.1)
+            # Advance only the download's clock after complete transfer/cleanup.
+            # Do not require TLS and checkpoints to finish within an 80-ms window,
+            # and do not change the real event-loop clock or network deadlines.
+            elapsed = 31.0
 
         with (
-            patch.object(PeerClient, "close", slow_close),
+            patch("aethermesh_core.network.download.asyncio", wraps=asyncio) as timing,
+            patch.object(PeerClient, "close", expire_after_close),
             self.assertRaises(RequestTimeout),
         ):
-            await self.fetch(timeout=0.08)
+            timing.get_running_loop.return_value = SimpleNamespace(
+                time=lambda: loop.time() + elapsed
+            )
+            await self.fetch(timeout=30, on_progress=observe)
         self.assertFalse(self.args["output"].exists())
         result = await self.fetch(resume=True)
         self.assertEqual(result.chunks_fetched, 0)
