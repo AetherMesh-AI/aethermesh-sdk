@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import math
 import ssl
 from collections.abc import Mapping
@@ -15,6 +16,7 @@ from .config import (
     peer_fingerprint,
     validate_project_id,
 )
+from .content import CONTENT_OPERATION, ContentRef, validate_content_result
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
@@ -38,7 +40,8 @@ _ERRORS = {
     "unsupported_operation": "The peer does not offer this operation.",
     "busy": "The peer has reached its request limit.",
     "cancelled": "The peer cancelled the request.",
-    "resource_limit": "The peer has reached its evaluation resource limit.",
+    "resource_limit": "The peer has reached its resource limit.",
+    "not_found": "The requested content is unavailable.",
 }
 
 
@@ -200,9 +203,14 @@ class PeerClient:
             or len(capabilities) != len(set(capabilities))
             or "status" not in capabilities
             or not set(capabilities).issubset(
-                {"status", "echo", ROUTER_EVALUATION_OPERATION}
+                {"status", "echo", ROUTER_EVALUATION_OPERATION, CONTENT_OPERATION}
             )
-            or (version == 1 and ROUTER_EVALUATION_OPERATION in capabilities)
+            or (
+                version == 1
+                and bool(
+                    {ROUTER_EVALUATION_OPERATION, CONTENT_OPERATION} & set(capabilities)
+                )
+            )
         ):
             raise ProtocolError("The peer advertised invalid capabilities.")
         return tuple(capabilities)
@@ -237,6 +245,21 @@ class PeerClient:
         profile = None if value is None else NodeProfile.from_dict(value)
         if profile != peer.profile:
             raise ProtocolError("The peer changed its negotiated node profile.")
+
+    async def fetch_content(
+        self, reference: ContentRef, *, timeout: float = 10.0
+    ) -> bytes:
+        """Fetch verified opaque bytes; never save, extract, import or execute them.
+
+        Cancellation and deadlines use the ordinary bounded request lifecycle.
+        Reference provenance and publisher authorization remain caller policy.
+        """
+        if reference.project_id != self.project_id:
+            raise ValueError("content reference must belong to the session project")
+        result = await self.request(
+            CONTENT_OPERATION, reference.to_dict(), timeout=timeout
+        )
+        return base64.b64decode(result["data"], validate=True)
 
     async def request(
         self,
@@ -315,6 +338,8 @@ class PeerClient:
                     self._validate_status(result, peer, capabilities)
                 if operation == ROUTER_EVALUATION_OPERATION:
                     validate_evaluation_result(result, request_payload)
+                if operation == CONTENT_OPERATION:
+                    validate_content_result(result, request_payload)
                 return result
         except TimeoutError as exc:
             await self._cancel_request(request_id, session_writer)

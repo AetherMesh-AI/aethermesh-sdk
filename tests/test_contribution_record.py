@@ -368,7 +368,9 @@ class ContributionRecordTests(unittest.TestCase):
                     self.minimal,
                     self.root,
                     journal_path,
-                    clock=lambda: datetime(2026, 7, 13, 12, 0, 2),  # noqa: DTZ001 - justification: Exercise rejection of naive clocks.
+                    clock=lambda: datetime(
+                        2026, 7, 13, 12, 0, 2
+                    ),  # Exercise rejection of naive clocks.
                 )
             self.assertFalse(journal_path.exists())
 

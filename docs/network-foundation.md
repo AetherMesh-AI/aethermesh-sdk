@@ -6,6 +6,9 @@ foundation, not a deployed public P2P network or a general AI execution service.
 An optional [verified tiny-router pilot](verified-learning-pilot.md) adds one
 strict numeric evaluation capability; it must be explicitly enabled and budgeted.
 
+Opt-in [small content exchange](content-exchange.md) adds project-scoped opaque
+byte retrieval without granting publisher authority or executing downloaded code.
+
 ## Component boundary
 
 `aethermesh_core.network` is an application-neutral Python API:
@@ -366,7 +369,7 @@ Not implemented by this slice:
   operational acceptance evidence
 - General AI inference, streaming model output, production AER/REVA/AEF expert
   routing, or provider adapters; the optional toy binary router is a bounded pilot
-- Artifact transfer, distributed builds, signed project update distribution,
+- Large/resumable artifact transfer, distributed builds, signed project update distribution,
   package/OS installation, release governance, or publisher trust policy
 - Model training, seeding, contribution scheduling, payments, or rewards
 

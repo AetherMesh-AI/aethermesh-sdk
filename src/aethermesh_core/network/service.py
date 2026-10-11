@@ -24,6 +24,7 @@ from .config import (
     validate_fingerprint,
     validate_project_id,
 )
+from .content import CONTENT_OPERATION, ContentStore
 from .errors import PeerError, ProtocolError, RemoteError
 from .evaluation import ROUTER_EVALUATION_OPERATION, RouterEvaluator
 from .profile import NodeProfile, PeerInfo, validate_node_id
@@ -66,6 +67,7 @@ class PeerService:
         node_profile: NodeProfile | None = None,
         expected_peer_ids: Mapping[str, str] | None = None,
         router_evaluator: RouterEvaluator | None = None,
+        content_store: ContentStore | None = None,
     ) -> None:
         validate_project_id(project_id)
         if not isinstance(allowed_peers, frozenset):
@@ -95,6 +97,12 @@ class PeerService:
                 raise ValueError(
                     "node identity bindings require an allowed fingerprint"
                 )
+        if content_store is not None:
+            if not isinstance(content_store, ContentStore):
+                raise TypeError("content_store must be a ContentStore or None")
+            if content_store.project_id != project_id:
+                raise ValueError("content store must belong to the service project")
+        self._content_store = content_store
         self._node_profile = node_profile
         self._router_evaluator = router_evaluator
         self._expected_peer_ids: Mapping[str, str] = MappingProxyType(bindings)
@@ -104,6 +112,8 @@ class PeerService:
         self.capabilities = frozenset({"status"}) | capabilities
         if router_evaluator is not None:
             self.capabilities |= frozenset({ROUTER_EVALUATION_OPERATION})
+        if content_store is not None:
+            self.capabilities |= frozenset({CONTENT_OPERATION})
         self.allowed_peers = allowed_peers
         self.limits = limits
         self._server: asyncio.Server | None = None
@@ -127,7 +137,7 @@ class PeerService:
 
     def _session_capabilities(self, protocol_version: int) -> frozenset[str]:
         if protocol_version == 1:
-            return self.capabilities - {ROUTER_EVALUATION_OPERATION}
+            return self.capabilities - {ROUTER_EVALUATION_OPERATION, CONTENT_OPERATION}
         return self.capabilities
 
     @property
@@ -404,6 +414,8 @@ class PeerService:
             and self._router_evaluator is not None
         ):
             return self._router_evaluator.evaluate(payload)
+        if operation == CONTENT_OPERATION and self._content_store is not None:
+            return self._content_store.get(payload)
         text = payload.get("text")
         delay = payload.get("delay_ms", 0)
         if (
