@@ -137,3 +137,7 @@ a separate CPU trainer to bounded TLS evaluator peers, independent-operator
 quorums, held-out/regression gates, local promotion and explicit rollback. It is
 a controlled development experiment, not a public network or production
 self-improving model platform. Default SDK connections enable no contribution.
+
+For explicit, bounded, resumable opaque-file exchange, see
+[resumable content](docs/resumable-content.md). The 8-MiB acceptance target does not
+provide Git import, publisher authorization or general repository synchronization.

@@ -30,10 +30,12 @@ from .profile import (
 )
 from .protocol import PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
 from .service import PeerService
+from .transfer import MAX_TRANSFER_BYTES, TransferManifest, TransferStore
 
 __all__ = [
     "CONTENT_OPERATION",
     "MAX_CONTENT_BYTES",
+    "MAX_TRANSFER_BYTES",
     "PROTOCOL_VERSION",
     "ROUTER_EVALUATION_OPERATION",
     "SUPPORTED_PROTOCOL_VERSIONS",
@@ -55,6 +57,8 @@ __all__ = [
     "RequestTimeout",
     "RouterEvaluator",
     "TLSIdentity",
+    "TransferManifest",
+    "TransferStore",
     "certificate_fingerprint",
     "evaluation_task",
     "hardware_profile",

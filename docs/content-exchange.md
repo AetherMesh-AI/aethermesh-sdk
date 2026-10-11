@@ -3,8 +3,9 @@
 `content.get.v1` is an opt-in protocol-v2 operation for fetching opaque bytes
 from an explicitly trusted TLS peer. It is a foundation for source/artifact
 exchange, not a release system or a replacement for GitHub. Keep GitHub available
-while validating this path. Large Git bundles, chunking, resume, discovery and
-publisher verification are follow-up work.
+while validating this path. The separate opt-in [bounded resumable transfer](resumable-content.md) supports
+larger opaque snapshots. Git integration, discovery and publisher verification
+remain follow-up work.
 
 ## SDK usage
 
@@ -186,6 +187,6 @@ automatically run, import, extract, install or build fetched content. AetherMesh
 and Eidolon retain separate publisher authorities, release identities and channels.
 No application checkout, Git configuration or release settings are changed.
 
-Next slices: bounded chunked transfer and resumable Git bundles; separately reviewed signed project manifests and
-publisher/freshness policy. Build scheduling, sandbox execution, app orchestration
+See [bounded resumable transfer](resumable-content.md) for chunked opaque files.
+Git bundle integration and signed publisher/freshness policy remain separate slices. Build scheduling, sandbox execution, app orchestration
 and installation remain outside this SDK.

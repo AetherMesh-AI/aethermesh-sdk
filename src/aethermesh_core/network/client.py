@@ -34,6 +34,13 @@ from .protocol import (
     read_frame,
     write_frame,
 )
+from .transfer import (
+    CHUNK_OPERATION,
+    MANIFEST_OPERATION,
+    TRANSFER_OPERATIONS,
+    TransferManifest,
+    validate_transfer_result,
+)
 
 _ERRORS = {
     "invalid_request": "The peer rejected the request payload.",
@@ -204,11 +211,16 @@ class PeerClient:
             or "status" not in capabilities
             or not set(capabilities).issubset(
                 {"status", "echo", ROUTER_EVALUATION_OPERATION, CONTENT_OPERATION}
+                | TRANSFER_OPERATIONS
             )
             or (
                 version == 1
                 and bool(
-                    {ROUTER_EVALUATION_OPERATION, CONTENT_OPERATION} & set(capabilities)
+                    (
+                        {ROUTER_EVALUATION_OPERATION, CONTENT_OPERATION}
+                        | TRANSFER_OPERATIONS
+                    )
+                    & set(capabilities)
                 )
             )
         ):
@@ -260,6 +272,36 @@ class PeerClient:
             CONTENT_OPERATION, reference.to_dict(), timeout=timeout
         )
         return base64.b64decode(result["data"], validate=True)
+
+    async def fetch_manifest(
+        self, digest: str, *, timeout: float = 10.0
+    ) -> TransferManifest:
+        """Fetch a canonical manifest bound to an explicitly selected digest."""
+        from .config import validate_fingerprint
+
+        validate_fingerprint(digest)
+        result = await self.request(
+            MANIFEST_OPERATION,
+            {"project": self.project_id, "sha256": digest},
+            timeout=timeout,
+        )
+        return TransferManifest.decode(
+            base64.b64decode(result["data"]), self.project_id, digest
+        )
+
+    async def fetch_chunk(
+        self, manifest: TransferManifest, index: int, *, timeout: float = 10.0
+    ) -> bytes:
+        """Fetch one chunk verified against the selected project-bound manifest."""
+        if manifest.project_id != self.project_id:
+            raise ValueError("manifest must belong to the session project")
+        ref = manifest.chunk(index)
+        result = await self.request(
+            CHUNK_OPERATION,
+            {**ref.to_dict(), "manifest": manifest.digest, "index": index},
+            timeout=timeout,
+        )
+        return base64.b64decode(result["data"])
 
     async def request(
         self,
@@ -340,6 +382,8 @@ class PeerClient:
                     validate_evaluation_result(result, request_payload)
                 if operation == CONTENT_OPERATION:
                     validate_content_result(result, request_payload)
+                if operation in TRANSFER_OPERATIONS:
+                    validate_transfer_result(operation, result, request_payload)
                 return result
         except TimeoutError as exc:
             await self._cancel_request(request_id, session_writer)

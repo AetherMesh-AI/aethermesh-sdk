@@ -43,7 +43,7 @@ def selected_parent(path: Path) -> Iterator[tuple[int, str]]:
         os.close(directory)
 
 
-def read_selected(path: Path) -> bytes:
+def read_selected(path: Path, *, limit: int = MAX_CONTENT_BYTES) -> bytes:
     """Read one regular file, never following a link or blocking on a FIFO."""
     with selected_parent(path) as (directory, name):
         fd = os.open(
@@ -51,11 +51,11 @@ def read_selected(path: Path) -> bytes:
         )
         try:
             info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_CONTENT_BYTES:
+            if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
                 raise ValueError("content input must be a small regular file")
             with os.fdopen(fd, "rb", closefd=False) as stream:
-                data = stream.read(MAX_CONTENT_BYTES + 1)
-                if len(data) > MAX_CONTENT_BYTES:
+                data = stream.read(limit + 1)
+                if len(data) > limit:
                     raise ValueError("content input grew beyond the size limit")
                 return data
         finally:
@@ -71,14 +71,16 @@ def require_absent(directory: int, name: str) -> None:
     raise FileExistsError("content output already exists")
 
 
-def publish_new(directory: int, name: str, data: bytes) -> None:
+def publish_new(
+    directory: int, name: str, data: bytes, *, limit: int = MAX_CONTENT_BYTES
+) -> None:
     """Publish complete verified bytes with owner-only mode and no overwrite.
 
     A same-directory hard link atomically installs the completed temporary file.
     No peer chooses a filename. A process crash can leave a temporary file; a
     successful link is the commit point and later cancellation cannot undo it.
     """
-    if len(data) > MAX_CONTENT_BYTES:
+    if len(data) > limit:
         raise ValueError("content exceeds the output size limit")
     temporary = ".aethermesh-content-" + secrets.token_hex(16)
     fd = os.open(
