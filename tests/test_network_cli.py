@@ -103,6 +103,8 @@ class PeerCLIAsyncTests(unittest.IsolatedAsyncioTestCase):
                     create_node_identity=False,
                     share_hardware=False,
                     expect_peer_id=[],
+                    share_file=None,
+                    content_budget=None,
                 )
                 output = io.StringIO()
                 with (
