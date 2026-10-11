@@ -1,4 +1,4 @@
-"""Foreground-only diagnostic peer command."""
+"""Explicit peer diagnostics, foreground serving and bounded content exchange."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = _ArgumentParser(description="Run an opt-in AetherMesh diagnostic peer")
+    parser = _ArgumentParser(description="Run explicitly configured AetherMesh peer operations")
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser(
         "serve", help="serve in the foreground until interrupted"
@@ -280,7 +280,7 @@ def _failure(error: Exception, *, content: bool = False) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Start a foreground peer, without exposing configuration in failures."""
+    """Run explicit peer operations without exposing configuration in failures."""
     arguments = _parser().parse_args(argv)
     try:
         if arguments.command == "serve":
