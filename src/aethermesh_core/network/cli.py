@@ -5,13 +5,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NoReturn
 
-from .config import TLSIdentity
-from .errors import PeerError
+from .client import PeerClient
+from .config import PeerEndpoint, TLSIdentity, certificate_fingerprint
+from .errors import (
+    AuthenticationError,
+    ConnectionClosed,
+    PeerError,
+    ProtocolError,
+    RemoteError,
+    RequestTimeout,
+)
 from .profile import NodeProfile, load_node_profile
 from .service import PeerService
 
@@ -60,6 +69,25 @@ def _parser() -> argparse.ArgumentParser:
         metavar="SHA256=NODE_ID",
         help="bind an allowed certificate fingerprint to an expected node ID",
     )
+    check = commands.add_parser("check", help="check an explicitly configured peer")
+    for name in ("certificate", "private-key", "trust-store"):
+        check.add_argument(f"--{name}", required=True, type=Path)
+    check.add_argument("--peer-fingerprint", required=True)
+    check.add_argument("--project", required=True)
+    check.add_argument("--host", default="127.0.0.1")
+    check.add_argument("--port", required=True, type=int)
+    check.add_argument("--server-name", default="localhost")
+    check.add_argument("--expected-node-id")
+    check.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="total connection/status deadline in seconds (0 < value <= 3600)",
+    )
+    fingerprint = commands.add_parser(
+        "fingerprint", help="hash a local certificate; this does not establish trust"
+    )
+    fingerprint.add_argument("--certificate", required=True, type=Path)
     return parser
 
 
@@ -117,18 +145,91 @@ async def _serve(arguments: argparse.Namespace) -> None:
         await service.close()
 
 
+async def _check(arguments: argparse.Namespace) -> None:
+    timeout = arguments.timeout
+    if not math.isfinite(timeout) or not 0 < timeout <= 3600:
+        raise ValueError("invalid check deadline")
+    identity = TLSIdentity(
+        arguments.certificate, arguments.private_key, arguments.trust_store
+    )
+    endpoint = PeerEndpoint(
+        arguments.host,
+        arguments.port,
+        arguments.server_name,
+        arguments.peer_fingerprint,
+        expected_node_id=arguments.expected_node_id,
+    )
+    async with PeerClient(identity, project_id=arguments.project) as client:
+        async with asyncio.timeout(timeout):
+            await client.connect(endpoint)
+            # Freeze negotiated facts before awaiting a reply: the receive task
+            # may observe EOF immediately after delivering that reply.
+            version = client.protocol_version
+            capabilities = client.capabilities
+            project = client.project_id
+            status = await client.request("status", timeout=timeout)
+            # V2 status is checked by PeerClient. Legacy V1 needs an exact check
+            # here before diagnostics claim agreement with negotiated facts.
+            if version == 1 and (
+                type(status.get("protocol_version")) is not int
+                or status != {"protocol_version": 1, "capabilities": list(capabilities)}
+            ):
+                raise ProtocolError("invalid legacy status")
+            report = {
+                "project": project,
+                "fingerprint": endpoint.fingerprint,
+                "protocol_version": version,
+                "capabilities": list(capabilities),
+                "status": "ok",
+            }
+    print(json.dumps(report, sort_keys=True))
+
+
+def _failure(error: Exception) -> str:
+    # Never include exception strings, supplied paths/arguments or peer text.
+    if isinstance(error, AuthenticationError):
+        return "authentication_failed"
+    if isinstance(error, (RequestTimeout, TimeoutError)):
+        return "timeout"
+    if isinstance(error, ProtocolError):
+        return "protocol_error"
+    if isinstance(error, ConnectionClosed):
+        return "connection_closed"
+    if isinstance(error, RemoteError):
+        return "remote_error"
+    if isinstance(error, ValueError):
+        return "invalid_configuration"
+    return "peer_unavailable"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Start a foreground peer, without exposing configuration in failures."""
     arguments = _parser().parse_args(argv)
     try:
-        asyncio.run(_serve(arguments))
+        if arguments.command == "serve":
+            asyncio.run(_serve(arguments))
+        elif arguments.command == "check":
+            asyncio.run(_check(arguments))
+        else:
+            print(
+                json.dumps(
+                    {
+                        "sha256": certificate_fingerprint(arguments.certificate),
+                        "trust_established": False,
+                    },
+                    sort_keys=True,
+                )
+            )
     except KeyboardInterrupt:
-        return 0
-    except (PeerError, OSError, ValueError):
-        print(
-            "Unable to run peer: verify configuration and endpoint availability.",
-            file=sys.stderr,
-        )
+        return 0 if arguments.command == "serve" else 130
+    except (PeerError, OSError, ValueError) as exc:
+        if arguments.command == "serve":
+            print(
+                "Unable to run peer: verify configuration and endpoint availability.",
+                file=sys.stderr,
+            )
+        else:
+            print(json.dumps({"error": _failure(exc)}, sort_keys=True), file=sys.stderr)
         return 1
     return 0
 

@@ -59,19 +59,54 @@ class TLSIdentity:
         return context
 
 
+def _certificate_der(pem: str) -> bytes:
+    der = ssl.PEM_cert_to_DER_cert(pem)
+    # OpenSSL accepts trailing bytes after an X.509 object. Require exactly
+    # one definite-length DER SEQUENCE before asking OpenSSL to parse X.509.
+    if len(der) < 2 or der[0] != 0x30:
+        raise ValueError("invalid certificate DER")
+    length = der[1]
+    header = 2
+    if length >= 128:
+        count = length & 127
+        if not 1 <= count <= 4 or len(der) < 2 + count or der[2] == 0:
+            raise ValueError("invalid DER length")
+        header += count
+        length = int.from_bytes(der[2:header], "big")
+        if length < 128:
+            raise ValueError("noncanonical DER length")
+    if header + length != len(der):
+        raise ValueError("certificate DER has missing or trailing bytes")
+    # A fresh, unused in-memory context provides the standard library's X.509
+    # parser. It never connects, changes system trust, or validates this peer.
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations(cadata=pem)
+    return der
+
+
 def certificate_fingerprint(path: Path) -> str:
-    """Return the first PEM certificate's SHA-256 DER fingerprint, in lowercase."""
+    """Hash the first parsed certificate in a bounded PEM-only certificate chain.
+
+    Parsing is not verification of validity dates, signatures, chain ordering,
+    hostname, trust or publisher authority. No trust configuration is persisted.
+    """
     try:
-        pem = path.read_text(encoding="ascii")
-        match = re.search(
-            r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", pem, re.DOTALL
-        )
-        if match is None:
-            raise ValueError("Missing PEM certificate")
-        der = ssl.PEM_cert_to_DER_cert(match.group())
+        with path.open("rb") as stream:
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            raise ValueError("certificate file exceeds 64 KiB")
+        pem = raw.decode("ascii")
+        pattern = r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----"
+        blocks = re.findall(pattern, pem, re.DOTALL)
+        if (
+            not 1 <= len(blocks) <= 16
+            or re.sub(pattern, "", pem, flags=re.DOTALL).strip()
+        ):
+            raise ValueError("expected only PEM certificate blocks")
+        certificates = [_certificate_der(block) for block in blocks]
     except (OSError, ValueError) as exc:
         raise AuthenticationError("Unable to read the configured certificate") from exc
-    return hashlib.sha256(der).hexdigest()
+    return hashlib.sha256(certificates[0]).hexdigest()
 
 
 def peer_fingerprint(writer: asyncio.StreamWriter) -> str:

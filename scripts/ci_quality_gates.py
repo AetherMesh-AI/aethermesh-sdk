@@ -336,6 +336,7 @@ def command_install_smoke(args: argparse.Namespace) -> int:
             [str(python), "-I", str(ROOT / "examples" / "sdk_smoke.py")],
             [str(peer_cli), "--help"],
             [str(python), "-I", str(ROOT / "examples" / "network_client.py"), "--help"],
+            [str(python), "-I", str(ROOT / "scripts" / "peer_install_smoke.py")],
         ]
         for command in commands:
             smoke = run(command, cwd=environment)

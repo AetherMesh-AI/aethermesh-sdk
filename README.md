@@ -55,6 +55,10 @@ The selected saved identity is reused without rewriting it. Optional
 identifiers and private keys are never profile fields. Certificate pins still
 authenticate connections, and advertised names/hardware remain self-reported.
 
+Use installed `aethermesh-peer check` for one-shot authenticated diagnostics and
+`aethermesh-peer fingerprint` to hash an explicitly selected certificate. Neither
+command creates identities, enrolls trust or starts a service.
+
 Start with the [network foundation guide](docs/network-foundation.md) for
 certificate/pin configuration, the installed SDK example, protocol contracts,
 security limits and two-process verification. No privileged installer or extra
