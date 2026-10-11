@@ -182,8 +182,13 @@ before an atomic no-overwrite hard link. Publication keeps the existing integrit
 only result, with publisher authorization false. Disk-full errors/cancellation
 before linking leave no destination when cleanup succeeds. A competing destination
 is preserved. An error after linking can leave a committed destination. Uncertain
-temporary-file close/unlink blocks all new admissions on that quota; callers must
-inspect/reconcile files before explicitly replacing it. There is no automatic
+temporary-file creation/ownership or close/unlink blocks all new admissions on
+that quota. Ownership is marked uncertain before creation and cleared only after
+confirmed descriptor close and temporary-path removal. If creation fails before
+a descriptor is returned, any possible path is preserved rather than risking
+deletion of an unrelated collision. An unidentified descriptor may remain open;
+resolve ownership or restart the owning process before replacing its quota.
+Callers must inspect/reconcile files before explicitly replacing it. There is no automatic
 reset, overwriting, scavenging or deletion of unrelated files.
 
 Crashes/power loss can leave a private `.aethermesh-stage-*` file. The in-memory

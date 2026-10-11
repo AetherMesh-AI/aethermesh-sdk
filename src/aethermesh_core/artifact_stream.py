@@ -36,6 +36,11 @@ class StagingUsage:
     blocked: bool
 
 
+@dataclass
+class _StagingLease:
+    uncertain: bool = False
+
+
 class StagingQuota:
     """Caller-shared, nonblocking process-local admission for temporary outputs.
 
@@ -59,12 +64,8 @@ class StagingQuota:
         with self._lock:
             return StagingUsage(self._bytes, self._jobs, self._blocked)
 
-    def _poison(self) -> None:
-        with self._lock:
-            self._blocked = True
-
     @contextmanager
-    def reserve(self, size: int) -> Iterator[None]:
+    def reserve(self, size: int) -> Iterator[_StagingLease]:
         _integer(size, 1, MAX_ARTIFACT_BYTES)
         with self._lock:
             if (
@@ -75,10 +76,13 @@ class StagingQuota:
                 raise ValueError("staging quota exhausted")
             self._bytes += size
             self._jobs += 1
+        lease = _StagingLease()
         try:
-            yield
+            yield lease
         finally:
             with self._lock:
+                if lease.uncertain:
+                    self._blocked = True
                 self._bytes -= size
                 self._jobs -= 1
 
@@ -234,6 +238,19 @@ def _recover(
         raise ValueError("staged original integrity mismatch")
 
 
+def _finish_stage(
+    fd: int | None, directory: int, temporary: str, lease: _StagingLease
+) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    finally:
+        os.unlink(temporary, dir_fd=directory)
+    # Clear only after BOTH ownership cleanup operations succeeded.
+    lease.uncertain = False
+
+
 def publish_artifact_files(
     manifest: ArtifactManifest,
     files: tuple[tuple[int, Path], ...],
@@ -263,18 +280,22 @@ def publish_artifact_files(
         raise TypeError("explicit staging quota required")
     _cancel(check_cancel)
     with (
-        staging.reserve(manifest.source_size),
+        staging.reserve(manifest.source_size) as lease,
         selected_parent(output) as (directory, name),
     ):
         require_absent(directory, name)
         temporary = ".aethermesh-stage-" + secrets.token_hex(16)
-        fd = os.open(
-            temporary,
-            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=directory,
-        )
+        fd: int | None = None
+        # Mark possible ownership BEFORE creation. An interruption before the
+        # descriptor reaches Python cannot establish which resource we own.
+        lease.uncertain = True
         try:
+            fd = os.open(
+                temporary,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory,
+            )
             _recover(fd, manifest, selected, check_cancel)
             os.fsync(fd)
             _cancel(check_cancel)
@@ -286,12 +307,5 @@ def publish_artifact_files(
                 follow_symlinks=False,
             )
         finally:
-            try:
-                try:
-                    os.close(fd)
-                finally:
-                    os.unlink(temporary, dir_fd=directory)
-            except BaseException:
-                staging._poison()
-                raise
+            _finish_stage(fd, directory, temporary, lease)
     return ArtifactPublication(expected_digest, output)

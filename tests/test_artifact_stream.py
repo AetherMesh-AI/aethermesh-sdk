@@ -4,6 +4,7 @@ import dataclasses
 import errno
 import itertools
 import os
+import sys
 import tempfile
 import threading
 import tracemalloc
@@ -228,6 +229,84 @@ class StreamRecoveryTests(unittest.TestCase):
         ):
             self.publish()
         self.assert_clean()
+
+    def test_interrupt_after_owned_creation_closes_specific_descriptor(self):
+        observed = []
+
+        def interrupt(frame, event, arg):
+            if (
+                event == "line"
+                and frame.f_code is publish_artifact_files.__code__
+                and type(frame.f_locals.get("fd")) is int
+            ):
+                observed.append(
+                    (frame.f_locals["fd"], self.root / frame.f_locals["temporary"])
+                )
+                raise KeyboardInterrupt("after descriptor assignment")
+            return interrupt
+
+        previous_trace = sys.gettrace()
+        try:
+            sys.settrace(interrupt)
+            with self.assertRaises(KeyboardInterrupt):
+                self.publish()
+        finally:
+            sys.settrace(previous_trace)
+        self.assertEqual(len(observed), 1)
+        fd, path = observed[0]
+        with self.assertRaises(OSError):
+            os.fstat(fd)
+        self.assertFalse(path.exists())
+        self.assertFalse(self.quota.usage().blocked)
+        self.assert_clean()
+
+    def test_unknown_creation_ownership_blocks_admission_and_preserves_path(self):
+        opened = []
+        real_open = os.open
+
+        def interrupted(name, flags, *args, **kwargs):
+            fd = real_open(name, flags, *args, **kwargs)
+            if str(name).startswith(".aethermesh-stage-"):
+                opened.append((fd, self.root / name))
+                raise KeyboardInterrupt("descriptor not returned to caller")
+            return fd
+
+        # Preserve the directory-safety capability check while wrapping open.
+        with (
+            patch(
+                "aethermesh_core.artifact_stream.os.open", side_effect=interrupted
+            ) as mock_open,
+            patch("os.supports_dir_fd", os.supports_dir_fd | {mock_open}),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            self.publish()
+        self.assertEqual(len(opened), 1)
+        fd, path = opened[0]
+        try:
+            self.assertEqual(os.fstat(fd).st_ino, path.stat().st_ino)
+            self.assertTrue(self.quota.usage().blocked)
+            with self.assertRaisesRegex(ValueError, "quota"):
+                self.publish()
+            self.assertFalse((self.root / "out").exists())
+        finally:
+            # Only the injector knows this otherwise-unidentified descriptor.
+            os.close(fd)
+            path.unlink()
+
+    def test_creation_collision_preserves_unowned_file_and_blocks_quota(self):
+        path = self.root / ".aethermesh-stage-collision"
+        path.write_bytes(b"unowned")
+        with (
+            patch(
+                "aethermesh_core.artifact_stream.secrets.token_hex",
+                return_value="collision",
+            ),
+            self.assertRaises(FileExistsError),
+        ):
+            self.publish()
+        self.assertEqual(path.read_bytes(), b"unowned")
+        self.assertTrue(self.quota.usage().blocked)
+        self.assertFalse((self.root / "out").exists())
 
     def test_partial_reads_and_writes(self):
         read, write = os.read, os.pwrite
