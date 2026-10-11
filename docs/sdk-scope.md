@@ -47,8 +47,9 @@ foundations. An advertised capability is not proof of remote AI execution.
    integrity verification, interrupted-transfer recovery and explicit provenance
    evaluation. Current: local hashing, receipts, schema validation and artifact
    references exist; [small content exchange](content-exchange.md) adds opt-in
-   bounded remote bytes with integrity checks. Large/resumable transfer and
-   adversarial distributed validation remain planned. A valid hash alone does not establish publisher authority.
+   bounded remote bytes with integrity checks. [Resumable opaque transfer](resumable-content.md) now supports up to 8 MiB,
+   and [trusted local bundle export](bundle-exchange.md) prepares selected repository
+   bytes without received-pack ingestion. Adversarial distributed validation remains planned. A valid hash alone does not establish publisher authority.
 5. **Project-scoped source/build/update interfaces.** Represent project identity,
    source revisions, build requests/results, platform artifacts, release channels
    and verification decisions. Eidolon and AetherMesh share transport without

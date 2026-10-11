@@ -419,10 +419,12 @@ Not implemented by this slice:
   operational acceptance evidence
 - General AI inference, streaming model output, production AER/REVA/AEF expert
   routing, or provider adapters; the optional toy binary router is a bounded pilot
-- Large/resumable artifact transfer, distributed builds, signed project update distribution,
+- General-size artifact transfer, distributed builds, signed project update distribution,
   package/OS installation, release governance, or publisher trust policy
 - Model training, seeding, contribution scheduling, payments, or rewards
 
 The existing local simulations, HTTP interfaces, and legacy update helpers keep
 their separate compatibility behavior. They do not gain these TLS guarantees
 merely by sharing the package namespace.
+
+Bounded [resumable transfer](resumable-content.md) and [trusted local bundle export](bundle-exchange.md) are available. For a controlled real-machine deployment plan, see the [two-peer operator runbook](two-peer-operations.md); it does not add cross-machine acceptance evidence.
