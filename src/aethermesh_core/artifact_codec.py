@@ -343,21 +343,40 @@ def _trusted(manifest: ArtifactManifest, expected_digest: str) -> None:
         raise ValueError("caller-selected manifest digest mismatch")
 
 
-def _verified(
-    manifest: ArtifactManifest, fragments: tuple[tuple[int, bytes], ...]
+def _preflight_fragments(
+    manifest: ArtifactManifest,
+    fragments: tuple[tuple[int, bytes], ...],
+    *,
+    max_bytes: int = 16 * 1024 * 1024,
 ) -> dict[int, bytes]:
+    """Admit bounded references using metadata only, before reading content."""
     if not isinstance(fragments, tuple) or len(fragments) > len(manifest.fragments):
         raise ValueError("fragment collection bound")
     result: dict[int, bytes] = {}
+    total = 0
     for entry in fragments:
         if not isinstance(entry, tuple) or len(entry) != 2:
             raise ValueError("invalid fragment entry")
         index, data = entry
-        manifest.transfer_manifest(index, data)
+        size = manifest.fragment_size(index)
+        if type(data) is not bytes or len(data) != size:
+            raise ValueError("fragment length mismatch")
         if index in result:
             raise ValueError("duplicate fragment index")
+        total += size
+        if total > max_bytes:
+            raise ValueError("repair input byte budget")
         result[index] = data
     return result
+
+
+def _verified(
+    manifest: ArtifactManifest, fragments: tuple[tuple[int, bytes], ...]
+) -> dict[int, bytes]:
+    available = _preflight_fragments(manifest, fragments)
+    for index, data in available.items():
+        manifest.transfer_manifest(index, data)
+    return available
 
 
 def reconstruct_artifact(
@@ -435,6 +454,12 @@ def publish_artifact(
 
 @dataclass(frozen=True)
 class RepairLimits:
+    """Logical supplied-input/returned-output budgets, not total work or RAM.
+
+    Reconstruction and re-encoding revisit admitted bytes and create intermediate
+    buffers under the separate hard artifact cap. These are not CPU/RSS limits.
+    """
+
     max_read_bytes: int = 16 * 1024 * 1024
     max_write_bytes: int = 10_000_000
     max_fragments: int = 2
@@ -473,12 +498,11 @@ def repair_artifact_fragments(
     sizes = [manifest.fragment_size(index) for index in targets]
     if len(set(targets)) != len(targets) or sum(sizes) > limits.max_write_bytes:
         raise ValueError("repair output budget or duplicate target")
-    available = _verified(manifest, fragments)
-    if (
-        any(index in available for index in targets)
-        or sum(map(len, available.values())) > limits.max_read_bytes
-    ):
-        raise ValueError("repair input budget or existing target")
+    available = _preflight_fragments(
+        manifest, fragments, max_bytes=limits.max_read_bytes
+    )
+    if any(index in available for index in targets):
+        raise ValueError("repair target already present")
     data = reconstruct_artifact(
         manifest, fragments, expected_digest=expected_digest, check_cancel=check_cancel
     )

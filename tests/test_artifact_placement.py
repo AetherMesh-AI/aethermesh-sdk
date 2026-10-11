@@ -102,6 +102,44 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(tuple(i for i, _ in plan.assignments), tuple(range(6, 12)))
         self.assertTrue(all(x.storage_bytes == 1 for x in plan.reservations))
 
+    def test_simulator_rejects_unknown_domains_nodes_and_assignments(self):
+        manifest = package().manifest
+        inventory = nodes()
+        plan = plan_placement(manifest, inventory, limits=PlacementLimits(), now=1)
+        for changes in (
+            {"offline": ("typo",)},
+            {"lost": ("typo",)},
+            {"offline": ("domain0", "domain0")},
+            {"offline": ["domain0"]},
+            {"lost": (None,)},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                simulate_domains(manifest, plan, inventory, **changes)
+        with self.assertRaises(ValueError):
+            simulate_domains(manifest, plan, inventory + (inventory[0],))
+        for assignments in (
+            list(plan.assignments),
+            ((0,),),
+            ((0, "unknown"),),
+            ((True, "n0"),),
+            ((6, "n0"),),
+            (plan.assignments[0],) * 2,
+            ((0, "n0"), (1, "n0")),
+            (),
+            plan.assignments * 2,
+        ):
+            with self.subTest(assignments=assignments), self.assertRaises(ValueError):
+                simulate_domains(
+                    manifest,
+                    dataclasses.replace(plan, assignments=assignments),
+                    inventory,
+                )
+        for unplaced in ([0], (0,), (0, 0), (6,), tuple(range(7))):
+            with self.subTest(unplaced=unplaced), self.assertRaises(ValueError):
+                simulate_domains(
+                    manifest, dataclasses.replace(plan, unplaced=unplaced), inventory
+                )
+
     def test_expiry_deletion_and_invalid_policies(self):
         manifest = package().manifest
         for changes, status in (

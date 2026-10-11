@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aethermesh_core.artifact_codec import (
     ArtifactLimits,
@@ -254,6 +255,100 @@ class ArtifactCodecTests(unittest.TestCase):
                     targets,
                     **(args | changes),
                 )
+
+    def test_repair_rejects_budget_before_any_content_verification(self):
+        pkg = package()
+        root = pkg.manifest.digest
+        for budget in (1, 15):
+            with (
+                self.subTest(budget=budget),
+                patch("aethermesh_core.artifact_codec._verified") as verified,
+                patch.object(ArtifactManifest, "transfer_manifest") as transfer,
+                patch(
+                    "aethermesh_core.artifact_codec._sha",
+                    wraps=lambda data: hashlib.sha256(data).hexdigest(),
+                ) as hashed,
+            ):
+                with self.assertRaisesRegex(ValueError, "input byte budget"):
+                    repair_artifact_fragments(
+                        pkg.manifest,
+                        supplied(pkg, (0, 1, 2, 3)),
+                        (4,),
+                        expected_digest=root,
+                        limits=RepairLimits(max_read_bytes=budget),
+                        now=1,
+                    )
+                verified.assert_not_called()
+                transfer.assert_not_called()
+                # Root metadata is checked; no fragment payload is hashed.
+                hashed.assert_called_once_with(pkg.manifest.encode())
+
+    def test_maximum_artifact_round_trip_and_fragment_count(self):
+        source = bytes(range(256)) * 32768
+        pkg = package(source)
+        self.assertEqual(len(source), 8 * 1024 * 1024)
+        self.assertEqual(
+            reconstruct_artifact(
+                pkg.manifest,
+                supplied(pkg, (1, 2, 4, 5)),
+                expected_digest=pkg.manifest.digest,
+            ),
+            source,
+        )
+        maximum = package(bytes(range(128)), fragment_bytes=1)
+        self.assertEqual(len(maximum.fragments), 192)
+        self.assertLessEqual(len(maximum.manifest.encode()), 32768)
+        self.assertEqual(
+            ArtifactManifest.decode(
+                maximum.manifest.encode(),
+                project="artifact",
+                expected_digest=maximum.manifest.digest,
+            ),
+            maximum.manifest,
+        )
+        with patch("aethermesh_core.artifact_codec._combine") as coding:
+            with self.assertRaisesRegex(ValueError, "count budget"):
+                package(bytes(range(129)), fragment_bytes=1)
+            coding.assert_not_called()
+
+    def test_manifest_byte_ceiling_and_duplicate_json_key(self):
+        oversized = b" " * 32769
+        with patch("aethermesh_core.artifact_codec.json.loads") as parser:
+            with self.assertRaisesRegex(ValueError, "size or digest"):
+                ArtifactManifest.decode(
+                    oversized,
+                    project="artifact",
+                    expected_digest=hashlib.sha256(oversized).hexdigest(),
+                )
+            parser.assert_not_called()
+        raw = package().manifest.encode()
+        duplicate = raw[:-1] + b',"project":"artifact"}'
+        with self.assertRaisesRegex(ValueError, "noncanonical"):
+            ArtifactManifest.decode(
+                duplicate,
+                project="artifact",
+                expected_digest=hashlib.sha256(duplicate).hexdigest(),
+            )
+
+    def test_cancellation_before_publication_leaves_no_file(self):
+        pkg = package()
+
+        def cancel():
+            raise InterruptedError("cancelled")
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory).resolve() / "output"
+            with patch("aethermesh_core.artifact_codec.publish_new") as writer:
+                with self.assertRaises(InterruptedError):
+                    publish_artifact(
+                        pkg.manifest,
+                        supplied(pkg),
+                        output,
+                        expected_digest=pkg.manifest.digest,
+                        check_cancel=cancel,
+                    )
+                writer.assert_not_called()
+            self.assertEqual(list(output.parent.iterdir()), [])
 
     def test_maximum_fragment_transport_is_153_chunks(self):
         store = TransferStore("artifact", b"x" * 5_000_000, max_served_bytes=0)

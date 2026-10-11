@@ -112,12 +112,20 @@ Current `TransferStore` remains one in-memory snapshot, not retained storage.
 unavailability (four retained but fewer online), and insufficient retained
 fragments (including never-placed fragments). It makes no availability/durability
 percentage claim and no claim that every original copy was lost globally.
+Unknown outage/loss domain labels, duplicate node IDs, unknown/duplicate/out-of-range
+assignments, repeated stripe failure domains and inconsistent unplaced indices
+are rejected rather than silently producing optimistic availability.
 
 ## Repair, privacy, and next slices
 
 `repair_artifact_fragments` performs one explicit local calculation. It requires
 a trusted root, at least four verified fragments per stripe, distinct missing
 targets, explicit read/write/count budgets, and caller-supplied trusted time.
+Shape, indices, lengths and aggregate input bytes are admitted before fragment
+hashing or transfer-manifest construction. Read/write budgets count logical
+supplied input and returned repair output, not total CPU work or intermediate
+memory: reconstruction and re-encoding revisit bytes and allocate buffers under
+the separate hard artifact cap.
 Expired or tombstoned artifacts cannot be repaired. It does not run a network
 repair queue, reserve remote writes, or interpret a timeout as permanent loss.
 
@@ -152,3 +160,8 @@ These next slices, learned control, distributed repair and useful ARM training
 are not implemented here. No persistent service, credential, trust change,
 external data upload or automatic downloaded-code execution is authorized by
 importing or using these local utilities.
+
+Coverage qualification: repository coverage configuration excludes raise-*Error
+lines and selected exception handlers. Reported 100% SDK branch coverage is not
+proof of rejection-path completeness; targeted adversarial tests are separate
+evidence. The synthetic numeric example has no general-workload claim.

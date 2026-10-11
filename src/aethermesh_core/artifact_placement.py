@@ -83,6 +83,17 @@ def _transfer_cost(manifest: ArtifactManifest, index: int) -> int:
     return size + len(transfer.encode())
 
 
+def _node_inventory(nodes: tuple[NodeBudget, ...]) -> dict[str, NodeBudget]:
+    if (
+        not isinstance(nodes, tuple)
+        or len(nodes) > 32
+        or any(not isinstance(node, NodeBudget) for node in nodes)
+        or len({node.node_id for node in nodes}) != len(nodes)
+    ):
+        raise ValueError("invalid node inventory")
+    return {node.node_id: node for node in nodes}
+
+
 def plan_placement(
     manifest: ArtifactManifest,
     nodes: tuple[NodeBudget, ...],
@@ -99,13 +110,7 @@ def plan_placement(
     degradation rather than silently reducing redundancy or domain separation.
     """
     _integer(now, 1, 4102444800)
-    if (
-        not isinstance(nodes, tuple)
-        or len(nodes) > 32
-        or any(not isinstance(node, NodeBudget) for node in nodes)
-        or len({node.node_id for node in nodes}) != len(nodes)
-    ):
-        raise ValueError("invalid node inventory")
+    _node_inventory(nodes)
     if not isinstance(limits, PlacementLimits) or type(deleted) is not bool:
         raise ValueError("invalid placement policy")
     if deleted or now >= manifest.expires_at:
@@ -211,6 +216,40 @@ def plan_placement(
     )
 
 
+def _simulation_assignments(
+    manifest: ArtifactManifest, plan: PlacementPlan, nodes: dict[str, NodeBudget]
+) -> dict[int, str]:
+    count = len(manifest.fragments)
+    if not isinstance(plan.assignments, tuple) or len(plan.assignments) > count:
+        raise ValueError("simulation assignment bound")
+    placements: dict[int, str] = {}
+    domains: set[tuple[int, str]] = set()
+    for entry in plan.assignments:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            raise ValueError("invalid simulation assignment")
+        index, node_id = entry
+        _integer(index, 0, count - 1)
+        if type(node_id) is not str or node_id not in nodes or index in placements:
+            raise ValueError("unknown node or duplicate fragment assignment")
+        domain = (index // 6, nodes[node_id].failure_domain)
+        if domain in domains:
+            raise ValueError("repeated failure domain in stripe")
+        domains.add(domain)
+        placements[index] = node_id
+    if not isinstance(plan.unplaced, tuple) or len(plan.unplaced) > count:
+        raise ValueError("simulation unplaced bound")
+    for index in plan.unplaced:
+        _integer(index, 0, count - 1)
+    unplaced = set(plan.unplaced)
+    if (
+        len(unplaced) != len(plan.unplaced)
+        or unplaced & placements.keys()
+        or unplaced | placements.keys() != set(range(count))
+    ):
+        raise ValueError("inconsistent assignment coverage")
+    return placements
+
+
 def simulate_domains(
     manifest: ArtifactManifest,
     plan: PlacementPlan,
@@ -224,10 +263,24 @@ def simulate_domains(
     'insufficient_retained' includes never-placed fragments; it does not assert
     every copy of the original artifact has been permanently lost everywhere.
     """
-    if plan.manifest_digest != manifest.digest or set(offline) & set(lost):
+    if not isinstance(plan, PlacementPlan) or plan.manifest_digest != manifest.digest:
         raise ValueError("simulation context mismatch")
-    by_node = {node.node_id: node for node in nodes}
-    placements = dict(plan.assignments)
+    by_node = _node_inventory(nodes)
+    domains = {node.failure_domain for node in nodes}
+    for unavailable in (offline, lost):
+        if (
+            not isinstance(unavailable, tuple)
+            or len(unavailable) > len(domains)
+            or any(
+                type(domain) is not str or domain not in domains
+                for domain in unavailable
+            )
+            or len(set(unavailable)) != len(unavailable)
+        ):
+            raise ValueError("unknown or duplicate simulation domain")
+    if set(offline) & set(lost):
+        raise ValueError("overlapping offline and lost domains")
+    placements = _simulation_assignments(manifest, plan, by_node)
     states = []
     for start in range(0, len(manifest.fragments), 6):
         available = retained = 0
