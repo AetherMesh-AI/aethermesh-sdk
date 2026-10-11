@@ -17,6 +17,7 @@ from aethermesh_core.network import (
     PeerEndpoint,
     PeerService,
     RemoteError,
+    TransferStore,
     certificate_fingerprint,
 )
 from tests.network_test_support import TestPKI
@@ -93,6 +94,12 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_during_blocked_response_has_no_duplicate_or_budget_refund(
         self,
     ) -> None:
+        await self.exercise_pressure(chunked=False)
+
+    async def test_chunk_cancellation_during_real_backpressure(self) -> None:
+        await self.exercise_pressure(chunked=True)
+
+    async def exercise_pressure(self, *, chunked: bool) -> None:
         with tempfile.TemporaryDirectory(prefix="content-pressure-") as directory:
             pki = TestPKI.create(Path(directory))
             blob = bytes(range(256)) * 128
@@ -100,13 +107,17 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
             store = ContentStore(
                 "pressure", (blob,), max_served_bytes=count * len(blob)
             )
+            transfer_store = TransferStore(
+                "pressure", blob, max_served_bytes=count * len(blob)
+            )
             service = ObservedService(
                 pki.server.identity(),
                 project_id="pressure",
                 allowed_peers=frozenset(
                     {certificate_fingerprint(pki.client.certificate)}
                 ),
-                content_store=store,
+                content_store=None if chunked else store,
+                transfer_store=transfer_store if chunked else None,
                 limits=Limits(max_inflight=count),
             )
             client = PeerClient(
@@ -132,12 +143,15 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                 # shrinking it mid-session causes slow window recovery on Linux.
                 paused_transport = writer.transport._ssl_protocol._transport
                 paused_transport.pause_reading()
-                tasks = [
-                    asyncio.create_task(
-                        client.fetch_content(store.references[0], timeout=30)
-                    )
-                    for _ in range(count)
-                ]
+
+                def fetch():
+                    if chunked:
+                        return client.fetch_chunk(
+                            transfer_store.manifest, 0, timeout=30
+                        )
+                    return client.fetch_content(store.references[0], timeout=30)
+
+                tasks = [asyncio.create_task(fetch()) for _ in range(count)]
                 service.fetch_tasks = tasks
                 await asyncio.wait_for(service.blocked.wait(), 5)
                 self.assertGreater(service.buffered_bytes, 0)
@@ -184,7 +198,7 @@ class ContentBackpressureTests(unittest.IsolatedAsyncioTestCase):
                     list(range(1, count + 1)),
                 )
                 with self.assertRaises(RemoteError) as exhausted:
-                    await client.fetch_content(store.references[0])
+                    await fetch()
                 self.assertEqual(exhausted.exception.code, "resource_limit")
             finally:
                 if paused_transport is not None:

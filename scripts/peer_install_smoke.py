@@ -133,6 +133,128 @@ async def content_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None
     )
 
 
+async def transfer_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
+    """Restart both CLI processes; exact budgets prove no verified chunk is resent."""
+    from aethermesh_core.network import TransferStore
+
+    blob = bytes(range(256)) * 32768  # Exact 8-MiB/256-chunk acceptance boundary.
+    source = cwd / "transfer-source"
+    source.write_bytes(blob)
+    manifest = TransferStore("resume", blob, max_served_bytes=0).manifest
+    stage = cwd / "checkpoints"
+    output = cwd / "resumed-output"
+    server_args = [
+        peer,
+        "serve",
+        "--certificate",
+        str(pki.server.certificate),
+        "--private-key",
+        str(pki.server.private_key),
+        "--trust-store",
+        str(pki.ca),
+        "--allow-peer",
+        pins[1],
+        "--project",
+        "resume",
+        "--share-transfer",
+        str(source),
+    ]
+    client_args = [
+        peer,
+        "fetch-transfer",
+        "--certificate",
+        str(pki.client.certificate),
+        "--private-key",
+        str(pki.client.private_key),
+        "--trust-store",
+        str(pki.ca),
+        "--peer-fingerprint",
+        pins[0],
+        "--project",
+        "resume",
+        "--manifest-sha256",
+        manifest.digest,
+        "--staging",
+        str(stage),
+        "--output",
+        str(output),
+        "--timeout",
+        "12",
+    ]
+    for resumed in (False, True):
+        chunk_count = 252 if resumed else 3
+        budget = len(manifest.encode()) + chunk_count * 32768
+        server = await asyncio.create_subprocess_exec(
+            *server_args,
+            "--content-budget",
+            str(budget),
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            assert server.stdout is not None
+            ready = json.loads(await asyncio.wait_for(server.stdout.readline(), 10))
+            assert ready["manifest_sha256"] == manifest.digest
+            args = [*client_args, "--port", str(ready["port"])]
+            if resumed:
+                args.append("--resume")
+            code, out, err = await command(*args, cwd=cwd)
+            if resumed:
+                assert code == 0 and not err
+                report = json.loads(out)
+                assert (
+                    report["chunks_fetched"] == 252
+                    and report["publisher_authorized"] is False
+                )
+                assert (
+                    output.read_bytes() == blob
+                    and output.stat().st_mode & 0o777 == 0o600
+                )
+            else:
+                assert (
+                    code == 1
+                    and not out
+                    and json.loads(err) == {"error": "remote_error"}
+                )
+                assert not output.exists() and len(list(stage.glob("*.chunk"))) == 3
+                crash = """
+import os, sys
+from pathlib import Path
+from unittest.mock import patch
+from aethermesh_core.network import TransferManifest
+from aethermesh_core.network.transfer_files import checkpoint, _save
+stage, source, expected = sys.argv[1:]
+manifest = TransferManifest.decode((Path(stage) / 'manifest.json').read_bytes(), 'resume', expected)
+def crash_before_unlink(*args, **kwargs):
+    os._exit(73)
+with checkpoint(Path(stage), manifest, resume=True) as directory:
+    with patch('aethermesh_core.network.content_files.os.unlink', crash_before_unlink):
+        _save(directory, '003.chunk', Path(source).read_bytes()[98304:131072])
+"""
+                code, out, err = await command(
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    crash,
+                    str(stage),
+                    str(source),
+                    manifest.digest,
+                    cwd=cwd,
+                )
+                assert code == 73 and not out and not err
+                assert len(list(stage.glob("*.chunk"))) == 4
+                remnants = list(stage.glob(".aethermesh-content-*"))
+                assert len(remnants) == 1 and remnants[0].stat().st_nlink == 2
+        finally:
+            await stop(server)
+    assert stage.stat().st_mode & 0o777 == 0o700
+    assert not list(stage.glob(".aethermesh-content-*"))
+    print(
+        "Installed resume acceptance passed: 8 MiB, process restart, crash recovery, exactly 252 missing chunks fetched, private verified output."
+    )
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -262,6 +384,7 @@ async def smoke() -> None:
         finally:
             await stop(server)
         await content_smoke(peer, pki, pins, cwd)
+        await transfer_smoke(peer, pki, pins, cwd)
     print(
         "Installed CLI loopback acceptance passed: status, fingerprint, pin/project rejection, unavailable peer, deadline."
     )

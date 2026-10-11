@@ -7,7 +7,8 @@ import asyncio
 import json
 import math
 import sys
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import NoReturn
 
@@ -25,6 +26,8 @@ from .errors import (
 )
 from .profile import NodeProfile, load_node_profile
 from .service import PeerService
+from .transfer import MAX_TRANSFER_BYTES, TransferStore
+from .transfer_files import publish_transfer, resume_download
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -81,13 +84,25 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--content-budget",
         type=int,
-        help="explicit lifetime content bytes served (0..67108864); requires --share-file",
+        help="explicit lifetime content bytes served (0..67108864); requires a sharing option",
     )
+    serve.add_argument(
+        "--share-transfer",
+        type=Path,
+        help="snapshot one resumable opaque file (at most 8 MiB)",
+    )
+    transfer = commands.add_parser(
+        "fetch-transfer", help="resume a bounded opaque file"
+    )
+    transfer.add_argument("--manifest-sha256", required=True)
+    transfer.add_argument("--staging", type=Path, required=True)
+    transfer.add_argument("--resume", action="store_true")
+    transfer.add_argument("--output", type=Path, required=True)
     check = commands.add_parser("check", help="check an explicitly configured peer")
     fetch = commands.add_parser(
         "fetch", help="fetch verified small content to a new file"
     )
-    for command in (check, fetch):
+    for command in (check, fetch, transfer):
         for name in ("certificate", "private-key", "trust-store"):
             command.add_argument(f"--{name}", required=True, type=Path)
         command.add_argument("--peer-fingerprint", required=True)
@@ -132,6 +147,7 @@ async def _serve(arguments: argparse.Namespace) -> None:
         expected_peer_ids[pin] = node_id
 
     content_store = None
+    transfer_store = None
 
     def configured_service(node_profile: NodeProfile | None = None) -> PeerService:
         return PeerService(
@@ -144,12 +160,18 @@ async def _serve(arguments: argparse.Namespace) -> None:
             expected_peer_ids=expected_peer_ids,
             node_profile=node_profile,
             content_store=content_store,
+            transfer_store=transfer_store,
         )
 
     # Constructors are I/O-free. Preflight trust configuration before any explicit
     # identity creation, then fix the profile for the lifetime of the final service.
     service = configured_service()
-    if (arguments.share_file is None) != (arguments.content_budget is None):
+    share_transfer = getattr(arguments, "share_transfer", None)
+    if arguments.share_file is not None and share_transfer is not None:
+        raise ValueError("select one sharing mode")
+    if (arguments.share_file is None and share_transfer is None) != (
+        arguments.content_budget is None
+    ):
         raise ValueError("sharing requires both a selected file and a serving budget")
     if arguments.share_file is not None:
         # Validate the budget before reading a selected file.
@@ -159,6 +181,13 @@ async def _serve(arguments: argparse.Namespace) -> None:
             (read_selected(arguments.share_file),),
             max_served_bytes=arguments.content_budget,
         )
+    if share_transfer is not None:
+        TransferStore(arguments.project, b"", max_served_bytes=arguments.content_budget)
+        transfer_store = TransferStore(
+            arguments.project,
+            read_selected(share_transfer, limit=MAX_TRANSFER_BYTES),
+            max_served_bytes=arguments.content_budget,
+        )
     node_profile = None
     if arguments.node_identity is not None:
         node_profile = load_node_profile(
@@ -166,7 +195,11 @@ async def _serve(arguments: argparse.Namespace) -> None:
             create=arguments.create_node_identity,
             include_hardware=arguments.share_hardware,
         )
-    if node_profile is not None or content_store is not None:
+    if (
+        node_profile is not None
+        or content_store is not None
+        or transfer_store is not None
+    ):
         service = configured_service(node_profile)
     try:
         await service.start(arguments.host, arguments.port)
@@ -179,6 +212,9 @@ async def _serve(arguments: argparse.Namespace) -> None:
         }
         if content_store is not None:
             readiness["content"] = [ref.to_dict() for ref in content_store.references]
+            readiness["content_budget_bytes"] = arguments.content_budget
+        if transfer_store is not None:
+            readiness["manifest_sha256"] = transfer_store.manifest.digest
             readiness["content_budget_bytes"] = arguments.content_budget
         if node_profile is not None:
             readiness["node"] = node_profile.to_dict()
@@ -207,50 +243,89 @@ def _connection_inputs(
     return identity, endpoint, timeout
 
 
-async def _check(arguments: argparse.Namespace) -> None:
+@asynccontextmanager
+async def _connected(
+    arguments: argparse.Namespace,
+) -> AsyncIterator[tuple[PeerClient, float]]:
+    """Own one explicit connection and deadline through the caller's requests."""
     identity, endpoint, timeout = _connection_inputs(arguments)
     async with PeerClient(identity, project_id=arguments.project) as client:
         async with asyncio.timeout(timeout):
             await client.connect(endpoint)
-            # Freeze negotiated facts before awaiting a reply: the receive task
-            # may observe EOF immediately after delivering that reply.
-            version = client.protocol_version
-            capabilities = client.capabilities
-            project = client.project_id
-            status = await client.request("status", timeout=timeout)
-            # V2 status is checked by PeerClient. Legacy V1 needs an exact check
-            # here before diagnostics claim agreement with negotiated facts.
-            if version == 1 and (
-                type(status.get("protocol_version")) is not int
-                or status != {"protocol_version": 1, "capabilities": list(capabilities)}
-            ):
-                raise ProtocolError("invalid legacy status")
-            report = {
-                "project": project,
-                "fingerprint": endpoint.fingerprint,
-                "protocol_version": version,
-                "capabilities": list(capabilities),
-                "status": "ok",
-            }
+            yield client, timeout
+
+
+async def _check(arguments: argparse.Namespace) -> None:
+    async with _connected(arguments) as (client, timeout):
+        # Freeze negotiated facts before awaiting a reply: the receive task
+        # may observe EOF immediately after delivering that reply.
+        version = client.protocol_version
+        capabilities = client.capabilities
+        project = client.project_id
+        status = await client.request("status", timeout=timeout)
+        # V2 status is checked by PeerClient. Legacy V1 needs an exact check
+        # here before diagnostics claim agreement with negotiated facts.
+        if version == 1 and (
+            type(status.get("protocol_version")) is not int
+            or status != {"protocol_version": 1, "capabilities": list(capabilities)}
+        ):
+            raise ProtocolError("invalid legacy status")
+        report = {
+            "project": project,
+            "fingerprint": arguments.peer_fingerprint,
+            "protocol_version": version,
+            "capabilities": list(capabilities),
+            "status": "ok",
+        }
     print(json.dumps(report, sort_keys=True))
 
 
 async def _fetch(arguments: argparse.Namespace) -> None:
-    identity, endpoint, timeout = _connection_inputs(arguments)
     reference = ContentRef(arguments.project, arguments.sha256, arguments.size)
     # Pin the chosen physical parent directory before any network I/O. Do not
     # create even a temporary output until the complete response is verified.
     with selected_parent(arguments.output) as (directory, name):
         require_absent(directory, name)
-        async with PeerClient(identity, project_id=arguments.project) as client:
-            async with asyncio.timeout(timeout):
-                await client.connect(endpoint)
-                data = await client.fetch_content(reference, timeout=timeout)
+        async with _connected(arguments) as (client, timeout):
+            data = await client.fetch_content(reference, timeout=timeout)
         publish_new(directory, name, data)
     print(
         json.dumps(
             {
                 **reference.to_dict(),
+                "saved": True,
+                "integrity_verified": True,
+                "publisher_authorized": False,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+async def _fetch_transfer(arguments: argparse.Namespace) -> None:
+    with selected_parent(arguments.output) as (directory, name):
+        require_absent(directory, name)
+        async with _connected(arguments) as (client, timeout):
+            manifest = await client.fetch_manifest(
+                arguments.manifest_sha256, timeout=timeout
+            )
+            data, fetched = await resume_download(
+                client,
+                manifest,
+                arguments.staging,
+                resume=arguments.resume,
+                timeout=timeout,
+            )
+        # Publication follows successful request completion and connection cleanup.
+        publish_transfer(directory, name, data)
+    print(
+        json.dumps(
+            {
+                "project": manifest.project_id,
+                "sha256": manifest.sha256,
+                "size": manifest.size,
+                "manifest_sha256": manifest.digest,
+                "chunks_fetched": fetched,
                 "saved": True,
                 "integrity_verified": True,
                 "publisher_authorized": False,
@@ -291,6 +366,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             asyncio.run(_check(arguments))
         elif arguments.command == "fetch":
             asyncio.run(_fetch(arguments))
+        elif arguments.command == "fetch-transfer":
+            asyncio.run(_fetch_transfer(arguments))
         else:
             print(
                 json.dumps(
@@ -312,7 +389,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(
                 json.dumps(
-                    {"error": _failure(exc, content=arguments.command == "fetch")},
+                    {
+                        "error": _failure(
+                            exc,
+                            content=arguments.command in {"fetch", "fetch-transfer"},
+                        )
+                    },
                     sort_keys=True,
                 ),
                 file=sys.stderr,
