@@ -41,8 +41,10 @@ Do not import private `network.transfer_files` helpers as a stable public API.
 
 For this minimal CLI adapter:
 
-- `check`: one stdout JSON result on success; static failure JSON on stderr;
-  exit codes described in [the runbook](two-peer-operations.md).
+- `check`: exit 0 returns one stdout JSON result; operational failures at exit 1
+  return static failure JSON on stderr. Syntax errors at exit 2 print plain usage
+  and error text; interruption at exit 130 does not promise JSON. Branch on exit
+  status before parsing output; see [the runbook](two-peer-operations.md).
 - `fetch-transfer`: explicitly selected manifest digest, private staging and new
   output; success separates integrity from publisher authorization. Resume is a
   new explicit invocation with `--resume`, not implicit replay.

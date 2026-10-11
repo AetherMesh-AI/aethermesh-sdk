@@ -44,6 +44,15 @@ peer-venv/bin/aethermesh-peer --help
 peer-venv/bin/aethermesh-peer fingerprint --certificate /physical/path/to/local-cert.pem
 ```
 
+The ordinary `pip install` example can resolve unpinned dependencies from package
+indexes. Verifying only the SDK wheel does not make the full environment
+reproducible. For reproducible acceptance, approve the complete transitive
+dependency set for each target Python/OS using a fully pinned, hashed lock or a
+verified wheelhouse with exact artifact selections; install from that approved
+set without unconstrained index resolution. Record the dependency artifacts and
+hashes alongside the SDK wheel. This runbook does not supply such a lock or
+wheelhouse, and does not claim reproducible environments from the example alone.
+
 `VERSION` and uppercase values below are placeholders, not defaults or commands
 to run unchanged. Use the environment's `aethermesh-peer` executable throughout.
 Fingerprint output has `trust_established: false`: compare public certificate
@@ -159,8 +168,11 @@ are passed to Git until a separate containment implementation is reviewed.
 | `output_exists`, `local_io_error` or local staging rejection | Check ownership, private permissions, absent output and unchanged manifest selection. Preserve suspicious state for local inspection; do not auto-delete arbitrary files. |
 
 Check/fetch exit codes: 0 success, 1 operation/configuration failure, 2 syntax,
-130 interruption. Error JSON is static and does not pinpoint every TLS or network
-cause. `--timeout` bounds network awaits, not hard synchronous filesystem latency.
+130 interruption. Operational failures at exit 1 return static error JSON,
+which does not pinpoint every TLS or network cause. Syntax exit 2 prints plain
+usage/error text, and interruption exit 130 does not promise a JSON record.
+Adapters must branch on exit status before parsing stdout/stderr as JSON.
+`--timeout` bounds network awaits, not hard synchronous filesystem latency.
 There is no automatic retry; choose a finite manual attempt count and deadline.
 Never print credential contents, disable pin/hostname checks, open firewall ports,
 or install background services as an automatic diagnostic remedy.
