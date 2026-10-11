@@ -110,19 +110,27 @@ async def smoke() -> None:
                 "status": "ok",
             }
 
-            async def rejected(extra: list[str], expected: str) -> None:
+            async def rejected(
+                extra: list[str], expected: str | tuple[str, ...]
+            ) -> None:
                 code, out, err = await command(*args, *extra, cwd=cwd)
                 assert code == 1 and not out
-                assert json.loads(err) == {"error": expected}
+                codes = (expected,) if isinstance(expected, str) else expected
+                assert json.loads(err) in [{"error": code} for code in codes], (
+                    codes,
+                    err,
+                )
                 assert str(cwd).encode() not in err
 
             await rejected(["--peer-fingerprint", pins[1]], "authentication_failed")
             await rejected(["--project", "wrong-project"], "connection_closed")
             # Hold an unused local TCP endpoint without listening: no port race.
+            # Linux refuses this connection; macOS can leave SYNs unanswered.
             with socket.socket() as reserved:
                 reserved.bind(("127.0.0.1", 0))
                 await rejected(
-                    ["--port", str(reserved.getsockname()[1])], "connection_closed"
+                    ["--port", str(reserved.getsockname()[1]), "--timeout", "0.1"],
+                    ("connection_closed", "timeout"),
                 )
             stalled_writers: list[asyncio.StreamWriter] = []
             stalled = await asyncio.start_server(
@@ -140,10 +148,14 @@ async def smoke() -> None:
                 )
             finally:
                 stalled.close()
-                await stalled.wait_closed()
+                # Newer asyncio waits for accepted transports in wait_closed;
+                # close those transports first, including the stalled handshake.
                 for writer in stalled_writers:
                     writer.close()
-                    await writer.wait_closed()
+                async with asyncio.timeout(5):
+                    for writer in stalled_writers:
+                        await writer.wait_closed()
+                    await stalled.wait_closed()
         finally:
             await stop(server)
     print(

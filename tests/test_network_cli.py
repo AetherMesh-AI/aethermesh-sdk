@@ -345,8 +345,10 @@ class PeerDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         for phase in ("connect", "request"):
             entered = asyncio.Event()
 
-            async def stalled(*args: object, **kwargs: object) -> None:
-                entered.set()
+            async def stalled(
+                *args: object, event: asyncio.Event = entered, **kwargs: object
+            ) -> None:
+                event.set()
                 await asyncio.Event().wait()
 
             client = Mock()

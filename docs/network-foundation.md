@@ -123,7 +123,8 @@ Failure JSON goes to stderr with a static `error` code: `authentication_failed`,
 `timeout`, `protocol_error`, `connection_closed`, `remote_error`,
 `invalid_configuration`, or `peer_unavailable`. No supplied values or remote
 exception text are repeated. Some causes cannot be distinguished remotely:
-project rejection and an unavailable endpoint can both close the connection.
+project rejection and an unavailable endpoint can both close the connection;
+an unavailable endpoint may instead time out when the OS drops traffic.
 
 In a separate process, using the installed package:
 
