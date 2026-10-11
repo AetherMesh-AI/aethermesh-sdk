@@ -11,7 +11,7 @@ from typing import Literal
 
 from .client import PeerClient
 from .config import PeerEndpoint, TLSIdentity, validate_fingerprint, validate_project_id
-from .content_files import require_absent, selected_parent
+from .content_files import _DestinationExistsError, require_absent, selected_parent
 from .errors import PeerError, RequestTimeout
 from .transfer import TransferManifest
 from .transfer_files import publish_transfer, resume_download
@@ -112,7 +112,10 @@ async def download_transfer(
     publication_attempted = False
     try:
         with selected_parent(output) as (directory, name):
-            require_absent(directory, name)
+            try:
+                require_absent(directory, name)
+            except _DestinationExistsError as exc:
+                raise DownloadError("output_exists") from exc
             # Connection cleanup remains owned by the context manager, even when
             # the total operation timeout expires or a callback fails/cancels.
             async with PeerClient(identity, project_id=project_id) as client:
@@ -163,7 +166,12 @@ async def download_transfer(
             # No await or application callback after this point. Link publication
             # is irreversible; fsync/cleanup failures conservatively report uncertainty.
             publication_attempted = True
-            publish_transfer(directory, name, data)
+            try:
+                publish_transfer(directory, name, data)
+            except _DestinationExistsError as exc:
+                raise DownloadError(
+                    "output_exists", publication_attempted=True
+                ) from exc
         return result
     except TimeoutError as exc:
         if publication_attempted:
@@ -172,8 +180,12 @@ async def download_transfer(
             ) from exc
         raise RequestTimeout("Download exceeded its deadline.") from exc
     except FileExistsError as exc:
+        # Checkpoint/temporary creation conflicts are not destination collisions.
+        conflict: Literal["publication_failed", "invalid_state"] = (
+            "publication_failed" if publication_attempted else "invalid_state"
+        )
         raise DownloadError(
-            "output_exists", publication_attempted=publication_attempted
+            conflict, publication_attempted=publication_attempted
         ) from exc
     except OSError as exc:
         code: Literal["publication_failed", "local_io"] = (

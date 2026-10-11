@@ -109,6 +109,11 @@ files. Staging is retained on success and failure; cleanup is an explicit choice
   expiry becomes `RequestTimeout`.
 - `DownloadError` is a `PeerError` with stable `code`: `output_exists`,
   `invalid_state`, `local_io`, `callback_failed` or `publication_failed`.
+  `output_exists` is reserved for the selected output destination, either at
+  preflight or the final no-overwrite link. An existing staging directory with
+  `resume=False` is `invalid_state`, with `publication_attempted=False`; its
+  contents remain untouched. A temporary-file collision during publication is
+  `publication_failed`, conservatively with `publication_attempted=True`.
   Configuration/path/checkpoint errors inside the operation become local errors;
   callbacks' ordinary exceptions become `callback_failed`. A callback's
   `CancelledError` propagates as cancellation instead.

@@ -183,6 +183,36 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             await self.fetch(resume=True)
         self.assertEqual(state.exception.code, "local_io")
 
+    async def test_existing_staging_is_not_an_output_collision(self):
+        stage = self.args["staging"]
+        stage.mkdir(mode=0o700)
+        marker = stage / "operator-note"
+        marker.write_bytes(b"keep this state")
+        clients = []
+
+        def own_client(*args, **kwargs):
+            client = PeerClient(*args, **kwargs)
+            clients.append(client)
+            return client
+
+        with (
+            patch("aethermesh_core.network.download.PeerClient", own_client),
+            self.assertRaises(DownloadError) as conflict,
+        ):
+            await self.fetch()
+        self.assertFalse(clients[0].connected)
+        self.assertIsNone(clients[0]._receiver)
+        self.assertEqual(clients[0]._pending, {})
+        self.assertEqual(conflict.exception.code, "invalid_state")
+        self.assertFalse(conflict.exception.publication_attempted)
+        self.assertFalse(self.args["output"].exists())
+        self.assertEqual(marker.read_bytes(), b"keep this state")
+        self.assertEqual(list(stage.iterdir()), [marker])
+        # Failure closed its session and released resources; a new explicit
+        # staging path works without changing the collided directory.
+        result = await self.fetch(staging=self.root / "new-stage")
+        self.assertEqual(result.output.read_bytes(), self.blob)
+
     async def test_publication_failures_never_claim_rollback(self):
         async def ready(progress):
             if progress.phase == "verified":
@@ -209,6 +239,27 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(failed.exception.publication_attempted)
             self.assertEqual(self.args["output"].read_bytes(), self.blob)
             self.args["output"].unlink()
+
+    async def test_temporary_publication_collision_is_not_output_exists(self):
+        temporary = self.root / (".aethermesh-content-" + "a" * 32)
+        temporary.write_bytes(b"unrelated temporary bytes")
+        temporary.chmod(0o600)
+
+        async def verified(progress):
+            if progress.phase == "verified":
+                self.collision_patch = patch(
+                    "aethermesh_core.network.content_files.secrets.token_hex",
+                    return_value="a" * 32,
+                )
+                self.collision_patch.start()
+                self.addCleanup(self.collision_patch.stop)
+
+        with self.assertRaises(DownloadError) as conflict:
+            await self.fetch(on_progress=verified)
+        self.assertEqual(conflict.exception.code, "publication_failed")
+        self.assertTrue(conflict.exception.publication_attempted)
+        self.assertFalse(self.args["output"].exists())
+        self.assertEqual(temporary.read_bytes(), b"unrelated temporary bytes")
 
     async def test_empty_manifest_progress_and_result(self):
         empty = TransferStore("download", b"", max_served_bytes=1000)

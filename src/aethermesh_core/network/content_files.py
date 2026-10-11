@@ -1,4 +1,4 @@
-"""CLI-only bounded regular-file snapshots and atomic, no-overwrite output.
+"""Bounded regular-file snapshots and atomic, no-overwrite output.
 
 Directory descriptors anchor every path component. Unsupported platforms fail
 closed; there is no check-then-follow fallback for symlinks. Callers must own and
@@ -15,6 +15,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .content import MAX_CONTENT_BYTES
+
+
+class _DestinationExistsError(FileExistsError):
+    """The selected destination exists, distinct from a temporary-file collision."""
 
 
 @contextmanager
@@ -68,7 +72,7 @@ def require_absent(directory: int, name: str) -> None:
         os.stat(name, dir_fd=directory, follow_symlinks=False)
     except FileNotFoundError:
         return
-    raise FileExistsError("content output already exists")
+    raise _DestinationExistsError("content output already exists")
 
 
 def publish_new(
@@ -94,13 +98,16 @@ def publish_new(
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        os.link(
-            temporary,
-            name,
-            src_dir_fd=directory,
-            dst_dir_fd=directory,
-            follow_symlinks=False,
-        )
+        try:
+            os.link(
+                temporary,
+                name,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+                follow_symlinks=False,
+            )
+        except FileExistsError as exc:
+            raise _DestinationExistsError("content output already exists") from exc
     finally:
         os.close(fd)
         os.unlink(temporary, dir_fd=directory)
