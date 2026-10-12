@@ -85,8 +85,9 @@ async def connect_peer_candidates(
     _validate(identity, endpoints, timeout, limits)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+    budget = asyncio.timeout_at(deadline)
     try:
-        async with asyncio.timeout_at(deadline):
+        async with budget:
             for count, endpoint in enumerate(endpoints, 1):
                 if loop.time() >= deadline:
                     raise RequestTimeout("Candidate connection deadline expired.")
@@ -115,5 +116,7 @@ async def connect_peer_candidates(
                 else:
                     return CandidateConnection(client, endpoint, count)
     except TimeoutError as exc:
+        if not budget.expired():
+            raise
         raise RequestTimeout("Candidate connection deadline expired.") from exc
     raise ConnectionClosed("No selected endpoint established the peer session.")

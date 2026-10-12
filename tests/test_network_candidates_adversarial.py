@@ -64,6 +64,7 @@ class AdversarialCandidateTests(unittest.IsolatedAsyncioTestCase):
     async def test_cleanup_failure_is_terminal_even_if_its_type_is_retryable(self):
         for cleanup in (
             RuntimeError("cleanup"),
+            TimeoutError("cleanup timeout before shared deadline"),
             EndpointUnavailable("cleanup unavailable"),
             EndpointTimeout("cleanup timeout"),
         ):
@@ -223,3 +224,15 @@ class AdversarialCandidateTests(unittest.IsolatedAsyncioTestCase):
                         await task
                 self.assertEqual(task.cancelled(), external)
                 create.assert_called_once()
+
+    async def test_terminal_nonbudget_timeout_is_not_relabeled(self):
+        failure = TimeoutError("unexpected local timeout")
+        client = MagicMock(connect=AsyncMock(side_effect=failure), close=AsyncMock())
+        with (
+            patch.object(candidates, "PeerClient", return_value=client) as create,
+            self.assertRaises(TimeoutError) as caught,
+        ):
+            await self.call()
+        self.assertIs(caught.exception, failure)
+        create.assert_called_once()
+        client.close.assert_awaited_once()

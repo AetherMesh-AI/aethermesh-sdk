@@ -53,7 +53,9 @@ preserved and an ordinary cleanup exception is attached as its cause. A new
 cancellation during cleanup remains terminal. Existing handlers for the base
 `ConnectionClosed` and `RequestTimeout` classes continue to work. Exhausting all
 candidates raises static `ConnectionClosed`; exhausting the total deadline raises
-`RequestTimeout`. No peer-supplied error strings or TLS paths enter new diagnostics.
+`RequestTimeout`. Only expiry of the helper’s own timer is translated to this
+shared-deadline diagnostic; unrelated local/cleanup timeouts remain terminal
+without being relabeled. No peer-supplied error strings or TLS paths enter new diagnostics.
 
 `CandidateConnection` returns the selected endpoint, attempt count and caller-owned
 client. Close it explicitly or use its async context manager. Successful connection
