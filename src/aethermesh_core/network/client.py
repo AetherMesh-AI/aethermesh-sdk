@@ -20,6 +20,8 @@ from .content import CONTENT_OPERATION, ContentRef, validate_content_result
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
+    EndpointTimeout,
+    EndpointUnavailable,
     PeerError,
     ProtocolError,
     RemoteError,
@@ -158,9 +160,11 @@ class PeerClient:
             except ssl.SSLError as exc:
                 raise AuthenticationError("Peer TLS authentication failed.") from exc
             except TimeoutError as exc:
-                raise RequestTimeout("Peer connection timed out.") from exc
+                failure = EndpointTimeout if writer is None else RequestTimeout
+                raise failure("Peer connection timed out.") from exc
             except (OSError, asyncio.IncompleteReadError) as exc:
-                raise ConnectionClosed("Could not establish the peer session.") from exc
+                closed = EndpointUnavailable if writer is None else ConnectionClosed
+                raise closed("Could not establish the peer session.") from exc
             finally:
                 if writer is not None:
                     await close_writer(writer)
@@ -488,11 +492,13 @@ class PeerClient:
         self._capabilities = ()
         self._peer_info = None
         self._fail_pending(ConnectionClosed("The peer session was closed."))
-        if receiver is not None:
-            receiver.cancel()
-            await asyncio.gather(receiver, return_exceptions=True)
-        if writer is not None:
-            await close_writer(writer)
+        try:
+            if receiver is not None:
+                receiver.cancel()
+                await asyncio.gather(receiver, return_exceptions=True)
+        finally:
+            if writer is not None:
+                await close_writer(writer)
 
     async def close(self) -> None:
         """Cancel pending work, close the socket and await owned resources."""

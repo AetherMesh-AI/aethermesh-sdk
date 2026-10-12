@@ -6,6 +6,7 @@ import. Existing ``aethermesh_core`` local prototype imports remain compatible.
 
 from .bundle import BundleInfo, inspect_bundle
 from .bundle_export import export_bundle
+from .candidates import CandidateConnection, connect_peer_candidates
 from .client import PeerClient
 from .config import Limits, PeerEndpoint, TLSIdentity, certificate_fingerprint
 from .content import CONTENT_OPERATION, MAX_CONTENT_BYTES, ContentRef, ContentStore
@@ -13,6 +14,8 @@ from .download import DownloadError, DownloadProgress, DownloadResult, download_
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
+    EndpointTimeout,
+    EndpointUnavailable,
     PeerError,
     ProtocolError,
     RemoteError,
@@ -44,12 +47,15 @@ __all__ = [
     "SUPPORTED_PROTOCOL_VERSIONS",
     "AuthenticationError",
     "BundleInfo",
+    "CandidateConnection",
     "ConnectionClosed",
     "ContentRef",
     "ContentStore",
     "DownloadError",
     "DownloadProgress",
     "DownloadResult",
+    "EndpointTimeout",
+    "EndpointUnavailable",
     "EvaluationBudget",
     "HardwareProfile",
     "Limits",
@@ -67,6 +73,7 @@ __all__ = [
     "TransferManifest",
     "TransferStore",
     "certificate_fingerprint",
+    "connect_peer_candidates",
     "download_transfer",
     "evaluation_task",
     "export_bundle",
