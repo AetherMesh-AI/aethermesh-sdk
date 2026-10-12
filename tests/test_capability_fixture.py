@@ -351,3 +351,23 @@ class NamingFixtureTests(unittest.TestCase):
                     self.assertFalse(any(context.flags.values()))
                     with self.assertRaises(ValueError):
                         naming._number(10**12 + 1)
+
+    def test_json_numeric_decoding_cannot_erase_uncertainty_or_round_a_gain(self):
+        data = fixture()
+        data["reports"]["baseline"]["metrics"]["accuracy"]["uncertainty"] = 0
+        data["reports"]["candidate"]["metrics"]["accuracy"].update(
+            value=0.85, uncertainty=1e-30
+        )
+        raw = json.dumps(data).encode()
+        for malformed in (
+            raw.replace(b"1e-30", b"1e-400"),
+            raw.replace(b"0.85", b"0.849999999999999999999999999999"),
+            raw.replace(b"1e-30", b"0e99999999999999999999999999999"),
+            raw.replace(b"1e-30", b"0." + b"0" * 1024 + b"1"),
+        ):
+            with self.subTest(raw=malformed[-100:]), self.assertRaises(ValueError):
+                naming.evaluate_naming_fixture(malformed, **pins(data))
+        exact = raw.replace(b"0.85", b"0.850000000000000000000000000000")
+        self.assertEqual(
+            naming.evaluate_naming_fixture(exact, **pins(data)), evaluate(data)
+        )

@@ -50,6 +50,10 @@ Metrics must match policy exactly. Conservative uncertainty intervals must satis
 resource/value bounds, every regression budget and each required positive gain.
 Exact rational comparisons of decoded numeric values avoid binary floating-point
 subtraction and do not depend on ambient Decimal precision, rounding or traps.
+Float literals must retain their exact decimal value through JSON decoding; lossy
+rounding and nonzero underflow are rejected before evidence is considered. Float
+literals are capped at 1,024 characters and exponent magnitude 400 before exact
+conversion, preventing unbounded powers of ten. Equivalent trailing zeros are allowed.
 Missing/conflicting evidence or failed gates returns experimental with no proposed
 name or version increment. Passing evidence that does not classify the intended
 capability returns unclassified. Internal versions stop at 4096. No training-run

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from fractions import Fraction
@@ -40,12 +41,27 @@ def fixture_digest(value: Any) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _float_literal(token: str) -> float:
+    # Bound exact conversion before constructing powers of ten. Reject JSON
+    # parsing loss too: a rounded threshold or erased uncertainty is not evidence.
+    parts = re.split("[eE]", token)
+    if len(token) > 1024 or (len(parts) == 2 and abs(int(parts[1])) > 400):
+        raise ValueError("fixture numeric literal bound")
+    value = float(token)
+    if not math.isfinite(value) or Fraction(token) != Fraction(str(value)):
+        raise ValueError("lossy fixture numeric literal")
+    return value
+
+
 def _decode(raw: bytes) -> dict[str, Any]:
     if type(raw) is not bytes or not 0 < len(raw) <= MAX_FIXTURE_BYTES:
         raise ValueError("fixture input exceeds byte bound")
     try:
         value = json.loads(
-            raw.decode("utf-8"), object_pairs_hook=_object, parse_constant=_constant
+            raw.decode("utf-8"),
+            object_pairs_hook=_object,
+            parse_constant=_constant,
+            parse_float=_float_literal,
         )
         _validate_message(value)
     except (ValueError, RecursionError, ProtocolError) as error:
