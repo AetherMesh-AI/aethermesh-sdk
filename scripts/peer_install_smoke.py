@@ -784,6 +784,58 @@ def directory_smoke(cwd: Path) -> None:
     print("Installed directory ownership passed; no ingestion or reclamation.")
 
 
+def ingestion_smoke(cwd: Path) -> None:
+    """Exercise reserve/copy/publish and a reverified retry from the installed wheel."""
+    from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
+    from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
+    from aethermesh_core.artifact_directory import initialize_artifact_directory
+    from aethermesh_core.artifact_ingestion import ingest_fragment_file
+
+    policy = AdmissionLimits(max_bytes=1024, max_objects=2)
+    ledger_path, directory = cwd / "ingestion-ledger", cwd / "ingestion-objects"
+    ArtifactAdmission.create(ledger_path, store_id="9" * 64, limits=policy).close()
+    initialize_artifact_directory(
+        directory, ledger_directory=ledger_path, store_id="9" * 64, limits=policy
+    )
+    pkg = package_artifact(
+        b"installed synthetic ingestion",
+        project="installed-ingestion",
+        kind="dataset",
+        data_class="synthetic",
+        expires_at=4102444800,
+        limits=ArtifactLimits(),
+    )
+    source = cwd / "ingestion-source"
+    source.write_bytes(pkg.fragments[0])
+    for retry in (False, True):
+        result = ingest_fragment_file(
+            directory,
+            source,
+            pkg.manifest,
+            0,
+            expected_digest=pkg.manifest.digest,
+            request_id="a" * 64,
+            ledger_directory=ledger_path,
+            store_id="9" * 64,
+            limits=policy,
+            max_read_bytes=1024,
+        )
+        assert result.already_present is retry
+        assert result.path.read_bytes() == pkg.fragments[0]
+        assert result.integrity_verified and not result.retention_confirmed
+        assert not result.publisher_authorized
+        if not retry:
+            source.unlink()
+    ledger = ArtifactAdmission(ledger_path, store_id="9" * 64, limits=policy)
+    try:
+        assert ledger.snapshot().charged_bytes == len(pkg.fragments[0])
+    finally:
+        ledger.close()
+    print(
+        "Installed fragment ingestion passed; conservative charges, no retention lease."
+    )
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -915,6 +967,7 @@ async def smoke() -> None:
         await artifact_smoke(pki, cwd)
         admission_smoke(cwd)
         directory_smoke(cwd)
+        ingestion_smoke(cwd)
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)

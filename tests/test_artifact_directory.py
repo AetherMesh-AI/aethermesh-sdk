@@ -398,3 +398,68 @@ except AdmissionConflict:
             self.assertEqual(ledger.snapshot().charged_bytes, 0)
             with self.assertRaises(AdmissionConflict):
                 initialize_artifact_directory(self.root / "sync-replacement", **args)
+
+    def test_real_process_exit_after_claim_before_marker_completion(self):
+        child = """
+import os, sys
+from pathlib import Path
+from unittest.mock import patch
+from aethermesh_core.artifact_admission import AdmissionLimits
+from aethermesh_core.artifact_directory import initialize_artifact_directory
+
+def crash(directory, data):
+    if sys.argv[3] == "partial":
+        fd = os.open("store.json", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=directory)
+        os.write(fd, data[:7])
+    os._exit(75)
+
+with patch("aethermesh_core.artifact_directory._write_marker", side_effect=crash):
+    initialize_artifact_directory(Path(sys.argv[2]), ledger_directory=Path(sys.argv[1]),
+                                  store_id="f"*64, limits=AdmissionLimits(max_bytes=64, max_objects=8))
+"""
+        for mode in ("absent", "partial"):
+            with self.subTest(mode=mode):
+                ledger_path = self.root / f"crash-ledger-{mode}"
+                path = self.root / f"crash-objects-{mode}"
+                with closing(
+                    ArtifactAdmission.create(
+                        ledger_path, store_id="f" * 64, limits=self.limits
+                    )
+                ) as ledger:
+                    record = ledger.reserve(
+                        "b" * 64,
+                        self.pkg.manifest,
+                        0,
+                        expected_digest=self.pkg.manifest.digest,
+                    )
+                result = subprocess.run(
+                    [sys.executable, "-c", child, str(ledger_path), str(path), mode],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(result.stderr, "")
+                with closing(
+                    ArtifactAdmission(
+                        ledger_path, store_id="f" * 64, limits=self.limits
+                    )
+                ) as ledger:
+                    snapshot = ledger.snapshot()
+                    self.assertEqual(snapshot.records, (record,))
+                    self.assertEqual(snapshot.charged_bytes, 4)
+                    self.assertEqual(snapshot.revision, record.revision + 1)
+                options = self.args | {
+                    "ledger_directory": ledger_path,
+                    "store_id": "f" * 64,
+                }
+                with self.assertRaises(ValueError):
+                    inspect_artifact_directory(path, **options)
+                with self.assertRaises(AdmissionConflict):
+                    initialize_artifact_directory(
+                        self.root / f"replacement-{mode}", **options
+                    )
+                self.assertEqual((path / "store.json").exists(), mode == "partial")
+                if mode == "partial":
+                    self.assertEqual(len((path / "store.json").read_bytes()), 7)
