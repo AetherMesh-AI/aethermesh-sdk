@@ -126,6 +126,64 @@ class ClientStreamTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class ClientLifecycleTests(ClientStreamTestCase):
+    async def test_connect_cleanup_preserves_negotiation_failure(self):
+        for failure in (
+            AuthenticationError("identity"),
+            ProtocolError("protocol"),
+            asyncio.CancelledError("cancelled"),
+        ):
+            with self.subTest(failure=type(failure).__name__):
+                cleanup = ValueError("inner writer cleanup")
+                with (
+                    patch(
+                        "aethermesh_core.network.client.read_frame",
+                        AsyncMock(side_effect=failure),
+                    ),
+                    patch(
+                        "aethermesh_core.network.client.close_writer",
+                        AsyncMock(side_effect=cleanup),
+                    ) as close,
+                    self.assertRaises(type(failure)) as caught,
+                ):
+                    await self.client.connect(ENDPOINT)
+                self.assertIs(caught.exception, failure)
+                self.assertIs(caught.exception.__cause__, cleanup)
+                close.assert_awaited_once_with(self.writer)
+                self.assertFalse(self.client.connected)
+                self.assertFalse(self.client._lifecycle_lock.locked())
+
+    async def test_connect_task_cancellation_survives_inner_cleanup_failure(self):
+        entered = asyncio.Event()
+        failures = []
+
+        async def blocked_read(_reader):
+            entered.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError as failure:
+                failures.append(failure)
+                raise
+
+        cleanup = RuntimeError("inner cleanup")
+        with (
+            patch("aethermesh_core.network.client.read_frame", blocked_read),
+            patch(
+                "aethermesh_core.network.client.close_writer",
+                AsyncMock(side_effect=cleanup),
+            ) as close,
+        ):
+            task = asyncio.create_task(self.client.connect(ENDPOINT))
+            await entered.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError) as caught:
+                await task
+        self.assertIs(caught.exception, failures[0])
+        self.assertIs(caught.exception.__cause__, cleanup)
+        self.assertTrue(task.cancelled())
+        close.assert_awaited_once_with(self.writer)
+        self.assertFalse(self.client.connected)
+        self.assertFalse(self.client._lifecycle_lock.locked())
+
     async def test_connect_context_status_reply_and_close(self):
         self.assertFalse(self.client.connected)
         self.assertEqual(self.client.capabilities, ())
