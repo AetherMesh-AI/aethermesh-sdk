@@ -27,6 +27,50 @@ AetherMesh AI capability. This is a scope boundary, not an implemented account
 system or permission to generate credentials, implement cryptography or deploy
 accounts. Project publisher/release authority remains separate.
 
+## Independence from the original operator
+
+The architecture must allow independent users to communicate, verify, train,
+recover and update if the original AetherMesh operators or project servers
+vanish. Do not make a project domain, gateway, evaluator authority, storage
+provider or company-held recovery key mandatory for these capabilities.
+
+Nodes should independently verify the chain state they rely on. Small devices may
+use independently verifiable light-client proofs rather than full validator
+responsibilities. These are design requirements, not claims that chain consensus,
+light-client verification, autonomous training or resilient release distribution
+are implemented. External wallet compatibility and optional AI owner onboarding
+remain separate from base peer connectivity. Current local storage utilities do
+not require an account, wallet, registry or online project authority.
+
+## Distributed learning and inference replicas (planned)
+
+Prefer eligible nodes already holding/running the exact relevant model version
+when assigning future learning work. Data-parallel/federated training (combining
+updates from workers), model partitioning (splitting model execution), and
+inference replication (running an existing expert more than once) are separate
+capabilities and must not be conflated. Training updates must bind to the exact
+base artifact/version, job and update schema, and pass independent validation
+before promotion. None of this is implemented by the current storage catalog or
+the small synthetic numeric example.
+
+Maintain multiple replicas of useful experts such as coding experts. Replica
+targets should adapt to measured demand, available capacity and configured
+operator/failure-domain diversity within standing budgets, rather than a blind
+percentage of nodes. For a future request, select privacy-eligible peers and
+allow bounded fanout of one to three replicas, with delayed hedging, hard total
+compute/replication budgets and cancellation of unnecessary work. Accept the
+first response that meets the request's validation policy, not merely the
+fastest response. Replicas of the same model are not independent quality
+consensus or a substitute for held-out/regression evaluation.
+
+Repeated inference must not duplicate external tools, payments or other side
+effects. Those require one separately authorized execution with idempotency;
+hedged model outputs do not confer execution authority. CPU-only/small-ARM
+training and request-latency/reliability benefits require measured evidence.
+These are future interfaces and evaluation requirements, not deployed training,
+replica orchestration or inference-network claims. App orchestration remains
+outside the SDK.
+
 ## End objectives and acceptance evidence
 
 1. **A headless application-facing SDK.** Keep a documented, versioned API for

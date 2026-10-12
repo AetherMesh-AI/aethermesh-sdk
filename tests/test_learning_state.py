@@ -348,7 +348,7 @@ os._exit(72)
             self.open()
         journal.unlink()
         with (
-            patch("aethermesh_core.learning_state.os.getuid", return_value=-1),
+            patch("aethermesh_core._local_sqlite.os.getuid", return_value=-1),
             self.assertRaises(ValueError),
         ):
             self.open()
@@ -360,7 +360,7 @@ os._exit(72)
     def test_initialization_fsync_failure_is_reported(self) -> None:
         with (
             patch(
-                "aethermesh_core.learning_state.os.fsync", side_effect=OSError("disk")
+                "aethermesh_core._local_sqlite.os.fsync", side_effect=OSError("disk")
             ),
             self.assertRaises(OSError),
         ):

@@ -693,6 +693,54 @@ async def artifact_smoke(pki: Any, cwd: Path) -> None:
         await service.close()
 
 
+def admission_smoke(cwd: Path) -> None:
+    """Exercise installed durable metadata; no file-retention guarantee."""
+    from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
+    from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
+    from aethermesh_core.artifact_files import verify_fragment_file
+
+    package = package_artifact(
+        b"synthetic catalog bytes",
+        project="installed-catalog",
+        kind="dataset",
+        data_class="synthetic",
+        expires_at=4102444800,
+        limits=ArtifactLimits(),
+    )
+    fragment = cwd / "catalog-fragment"
+    fragment.write_bytes(package.fragments[0])
+    observation = verify_fragment_file(
+        package.manifest,
+        0,
+        fragment,
+        expected_digest=package.manifest.digest,
+        max_read_bytes=len(package.fragments[0]),
+    )
+    limits = AdmissionLimits(max_bytes=1024, max_objects=2)
+    directory = cwd / "catalog"
+    ledger = ArtifactAdmission.create(directory, store_id="7" * 64, limits=limits)
+    try:
+        reserved = ledger.reserve(
+            "8" * 64, package.manifest, 0, expected_digest=package.manifest.digest
+        )
+        saved = ledger.record_verification(
+            "8" * 64, expected_revision=reserved.revision, observation=observation
+        )
+    finally:
+        ledger.close()
+    reopened = ArtifactAdmission(directory, store_id="7" * 64, limits=limits)
+    try:
+        assert reopened.snapshot().records == (saved,)
+        invalidated = reopened.invalidate("8" * 64, expected_revision=saved.revision)
+        assert invalidated.state == "reserved"
+        assert reopened.snapshot().charged_bytes == len(package.fragments[0])
+    finally:
+        reopened.close()
+    print(
+        "Installed durable admission passed; local metadata only, no retention claim."
+    )
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -822,6 +870,7 @@ async def smoke() -> None:
         finally:
             await stop(server)
         await artifact_smoke(pki, cwd)
+        admission_smoke(cwd)
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
