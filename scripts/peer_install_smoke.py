@@ -698,6 +698,10 @@ def admission_smoke(cwd: Path) -> None:
     from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
     from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
     from aethermesh_core.artifact_files import verify_fragment_file
+    from aethermesh_core.artifact_inventory import (
+        InventorySelection,
+        reconcile_inventory,
+    )
 
     package = package_artifact(
         b"synthetic catalog bytes",
@@ -734,6 +738,15 @@ def admission_smoke(cwd: Path) -> None:
         invalidated = reopened.invalidate("8" * 64, expected_revision=saved.revision)
         assert invalidated.state == "reserved"
         assert reopened.snapshot().charged_bytes == len(package.fragments[0])
+        selection = (InventorySelection("8" * 64, package.manifest, fragment),)
+        report = reconcile_inventory(reopened, selection, max_read_bytes=1024)
+        assert report.observations[0].status == "verified"
+        assert not report.retention_confirmed and not report.publisher_authorized
+        fragment.unlink()
+        missing = reconcile_inventory(reopened, selection, max_read_bytes=1024)
+        assert missing.observations[0].status == "missing"
+        assert missing.charged_bytes == report.charged_bytes
+        assert reopened.snapshot().records == (invalidated,)
     finally:
         reopened.close()
     print(
