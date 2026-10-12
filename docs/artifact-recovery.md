@@ -37,7 +37,7 @@ Partial or corrupt staging, same-content files on different inodes, missing byte
 unrecognized ownership, extra links and unrelated unfinished state are preserved.
 This API cannot safely repair every interrupted operation. There is no force mode,
 TTL shortcut, fallback overwrite, bulk cleanup, automatic quarantine or ledger
-replacement. Missing manifests, partial marker initialization, ambiguous files and
+replacement. Explicit quarantine is a separate operation described below. Missing manifests, partial marker initialization, ambiguous files and
 lost ownership bindings still require a separately designed operator procedure;
 do not delete evidence or release charges to make the directory appear clean.
 
@@ -62,43 +62,18 @@ removal, including recovery that starts with both aliases already present. Each
 restart explicitly revalidates the surviving names, completes only positively
 verified actions, and retains the original admission and charge. This is local
 process-crash evidence, not multi-machine, Internet or small-device deployment
-proof. Partial-file disposition, actual charge reclamation, repair/replication and
-network storage hosting remain unfinished.
+proof. Oversized/ambiguous-file disposition, actual charge reclamation, repair/replication
+and network storage hosting remain unfinished.
 
-## Failed staging and lost-binding preparation
+## Failed staging and lost ownership bindings
 
-The following is a proposed next slice, not an available quarantine or ownership
-repair API. Current recovery rejects empty, short, corrupt and oversized staging,
-and missing/corrupt ownership evidence. It preserves their bytes, names, admission
-and full charge. An old modification time does not establish abandonment,
-ownership, safe deletion or permission to release capacity.
-
-For an intact ownership binding, a future explicit failed-staging disposition
-should first produce a bounded observation under the same directory lock. Pin the
-exact admission and complete ledger snapshot, directory/database identities,
-private regular-file identity and length, modification/change stamps, and a full
-observed content hash. Read only up to the admitted fragment size using the
-existing chunk and aggregate limits; oversized or ambiguous files remain blocked.
-The observation is local operator evidence, not publisher authority or a signed
-authorization. A complete matching fragment uses verified recovery instead.
-
-A separate explicit quarantine action should revalidate that entire observation
-before mutation. Preserve the inode through a no-overwrite quarantine link, sync
-the directory, positively verify both names refer to that inode, and remove only
-the original staging alias before syncing again. Interrupted steps must preserve
-at least one name and all charges; retries must re-inspect actual evidence.
-Different-inode destinations, external links, changed snapshots and cancellation
-before the commit boundary reject without guessing. Tests must terminate real
-processes around each link/unlink boundary and inject sync and close failures.
-
-Quarantined bytes would remain unavailable and charged. Accounting must recognize
-their retained ownership without permitting ingestion or verified recovery to
-reuse that request's charge. A replacement request needs a separate full
-reservation. Other requests may proceed only inside existing total limits after
-all their accounting checks pass. This requires an explicit change to directory
-accounting and writer admission; merely renaming a file is insufficient. Keep the
-existing entry, byte, object and revision caps. No timer, startup handler or
-ordinary error path should invoke quarantine, deletion or charge release.
+[Explicit failed-staging quarantine](artifact-quarantine.md) is a separate local
+operation for intact directory/ledger ownership. It preserves failed bytes and
+all charges after a caller-selected observation is revalidated. It is never
+invoked automatically by verified recovery or ingestion. Empty, short or corrupt
+bytes may qualify; oversized files and ambiguous ownership remain blocked. An
+old modification time does not establish abandonment, ownership, safe deletion
+or permission to release capacity.
 
 Lost ownership evidence requires a different procedure. The version-1 ledger
 claim records the owned directory device/inode; `store.json` additionally pins the

@@ -108,6 +108,8 @@ def recover_verified_fragment(
         if blocked:
             raise ValueError("ambiguous directory state requires operator recovery")
         names = {entry.name for entry in entries}
+        if request_id + ".quarantine" in names:
+            raise ValueError("quarantined request requires explicit disposition")
         final, stage = request_id + ".fragment", request_id + ".staging"
         if stage not in names:
             if final not in names:

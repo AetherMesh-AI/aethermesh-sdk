@@ -221,6 +221,11 @@ def ingest_fragment_file(
         )
         if blocked:
             raise ValueError("owned directory requires explicit reconciliation")
+        if any(
+            entry.request_id == request_id and entry.phase == "quarantine"
+            for entry in entries
+        ):
+            raise ValueError("quarantined request cannot reuse its admission")
         _cancel(check_cancel)
         if ledger.snapshot() != initial:
             raise AdmissionConflict("admission changed before ingestion")
