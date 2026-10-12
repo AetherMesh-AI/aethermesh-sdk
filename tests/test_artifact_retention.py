@@ -4,7 +4,7 @@ import builtins
 import json
 import socket
 import unittest
-from dataclasses import replace
+from dataclasses import asdict, replace
 from unittest.mock import patch
 
 from aethermesh_core import artifact_retention as retention
@@ -400,3 +400,50 @@ class RetentionContractTests(unittest.TestCase):
                 until=40,
                 evidence=self.report,
             )
+
+    def test_envelope_checksum_covers_latest_record_and_initial_terms(self):
+        accepted = self.accept()
+        original = json.loads(accepted.encode())
+        for field, value in (
+            ("until", 41),
+            ("at", 2),
+            ("operation_id", "d" * 64),
+            ("evidence_digest", "f" * 64),
+            ("ledger_revision", 3),
+            ("admission_revision", 2),
+            ("charged_bytes", 8),
+            ("action", "renew"),
+            ("previous_digest", "f" * 64),
+        ):
+            changed = json.loads(accepted.encode())
+            changed["records"][-1][field] = value
+            self.assertEqual(changed["checksum"], original["checksum"])
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(ValueError, "checksum"),
+            ):
+                retention.RetentionPlan.decode(retention._json(changed))
+        for plan in (self.plan, accepted):
+            for field in ("intent_id", "terms", "records"):
+                changed = json.loads(plan.encode())
+                if field == "intent_id":
+                    changed[field] = "f" * 64
+                elif field == "terms":
+                    changed[field]["max_duration_seconds"] = 49
+                else:
+                    changed[field] = (
+                        [] if plan.records else [asdict(accepted.records[0])]
+                    )
+                with (
+                    self.subTest(field=field),
+                    self.assertRaisesRegex(ValueError, "checksum"),
+                ):
+                    retention.RetentionPlan.decode(retention._json(changed))
+        changed = json.loads(accepted.encode())
+        changed["checksum"] = "f" * 64
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            retention.RetentionPlan.decode(retention._json(changed))
+        # Recomputing an unsigned checksum is possible: it is not authentication.
+        altered = replace(accepted, records=(replace(accepted.records[0], until=41),))
+        self.assertEqual(retention.RetentionPlan.decode(altered.encode()), altered)
+        self.assertFalse(altered.durable_committed or altered.retention_confirmed)

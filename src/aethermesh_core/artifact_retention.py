@@ -264,7 +264,8 @@ class RetentionPlan:
         return False
 
     def encode(self) -> bytes:
-        raw = _json({"version": 1, **asdict(self)})
+        payload = {"version": 1, **asdict(self)}
+        raw = _json({**payload, "checksum": _digest(payload)})
         if len(raw) > MAX_RETENTION_BYTES:
             raise ValueError("retention byte budget exceeded")
         return raw
@@ -278,11 +279,15 @@ class RetentionPlan:
             data = json.loads(raw, object_pairs_hook=_object, parse_constant=_constant)
             _validate_message(data)
             if (
-                set(data) != {"version", "intent_id", "terms", "records"}
+                set(data) != {"version", "intent_id", "terms", "records", "checksum"}
                 or type(data["version"]) is not int
                 or data["version"] != 1
             ):
                 raise ValueError("retention version or fields mismatch")
+            checksum = data.pop("checksum")
+            validate_fingerprint(checksum)
+            if _digest(data) != checksum:
+                raise ValueError("retention envelope checksum mismatch")
             terms = dict(data["terms"])
             terms["limits"] = AdmissionLimits(**terms["limits"])
             terms["admission"] = FragmentAdmission(**terms["admission"])

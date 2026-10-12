@@ -51,7 +51,9 @@ Stopping a future availability claim, disposing of bytes and releasing quota are
 three separate operations; only the first has lifecycle semantics here.
 
 The canonical version-1 encoding has exact fields, chained record digests and a
-root commitment to terms/intent ID. It rejects duplicate operation IDs, broken
+root commitment to terms/intent ID, plus a checked checksum over the entire
+canonical envelope (version, terms, intent ID and every record, including the
+latest one). It rejects duplicate operation IDs, broken
 links, invalid transitions, unknown fields/versions and noncanonical JSON. Hashes
 provide accidental-corruption/binding checks, not authenticity, anti-rollback or
 operator authority. Validly re-encoded fabricated histories remain untrusted data.
