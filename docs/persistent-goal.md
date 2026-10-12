@@ -4,10 +4,14 @@ Build a small, trustworthy, headless SDK that lets Eidolon and other application
 connect to a future decentralized AetherMesh AI network without coupling them to
 one UI, agent hierarchy, model engine or hosting provider.
 
-The repository currently provides local prototype foundations. It does not yet
-provide public P2P discovery, authenticated peer sessions or remote AI inference.
+The repository provides authenticated direct-peer sessions and bounded content
+exchange alongside local prototype foundations. Public P2P discovery and general
+remote AI inference remain unimplemented.
 [SDK scope and end objectives](sdk-scope.md) is the current work boundary;
 [architecture](architecture.md) explains the target layering.
+
+The [network and participation backlog](network-backlog.md) tracks proposed
+stages, ownership and acceptance evidence without authorizing deployment.
 
 ## Priorities
 

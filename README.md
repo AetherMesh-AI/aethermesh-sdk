@@ -86,6 +86,9 @@ See [CLI and local API](docs/ui-and-cli.md) and the
 
 ## Scope and end objectives
 
+Track proposed stages and acceptance criteria in the
+[network and participation backlog](docs/network-backlog.md).
+
 Read [SDK scope and objectives](docs/sdk-scope.md) for implemented, partial and
 planned capabilities and the exact ownership boundaries. In brief:
 
