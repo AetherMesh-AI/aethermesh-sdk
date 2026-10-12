@@ -949,6 +949,51 @@ def ingestion_smoke(cwd: Path) -> None:
     print("Installed owned inventory audit passed; no retention or repair authority.")
 
 
+def retention_contract_smoke(
+    manifest: Any, report: Any, store_id: str, policy: Any
+) -> None:
+    """Prepare records from an actual local audit without committing custody."""
+    from aethermesh_core.artifact_retention import RetentionPlan, retention_terms
+
+    terms = retention_terms(
+        manifest,
+        report,
+        report.ledger.records[0].request_id,
+        store_id=store_id,
+        limits=policy,
+        max_duration_seconds=100,
+        max_records=3,
+    )
+    plan = RetentionPlan("d" * 64, terms)
+    accepted = plan.advance(
+        "accept",
+        operation_id="e" * 64,
+        expected_revision=0,
+        at=1,
+        until=50,
+        evidence=report,
+    )
+    renewed = accepted.advance(
+        "renew",
+        operation_id="f" * 64,
+        expected_revision=1,
+        at=20,
+        until=100,
+        evidence=report,
+    )
+    expired = renewed.advance(
+        "expire", operation_id="a" * 64, expected_revision=2, at=100
+    )
+    assert RetentionPlan.decode(expired.encode()) == expired
+    assert not expired.durable_committed and not expired.retention_confirmed
+    assert all(
+        row.charged_bytes == report.ledger.charged_bytes for row in expired.records
+    )
+    print(
+        "Installed retention preparation passed; no durable custody or quota release."
+    )
+
+
 def repair_plan_smoke(cwd: Path) -> None:
     """Local fixture domains are labels, never independent-host evidence."""
     from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
@@ -1007,6 +1052,13 @@ def repair_plan_smoke(cwd: Path) -> None:
             store_id=store_id,
             limits=policy,
         )
+        if index == 0:
+            retention_contract_smoke(pkg.manifest, report, store_id, policy)
+            ledger = ArtifactAdmission(ledger_path, store_id=store_id, limits=policy)
+            try:
+                assert ledger.snapshot() == report.ledger
+            finally:
+                ledger.close()
         inventories.append(
             RepairInventory(f"fixture-{index}", f"fictitious-domain-{index}", report)
         )
