@@ -47,7 +47,10 @@ Once transport establishment succeeds, **every** negotiation failure is terminal
 including EOF or timeout. This distinction matters because a server can reject a
 project by closing without an explicit protocol error. Authentication failures,
 wrong pins/SANs/node IDs, malformed/incompatible protocol, configuration errors and
-unexpected exceptions never trigger fallback. Existing handlers for the base
+unexpected exceptions never trigger fallback. Cleanup failures stop attempts; when
+cleaning up a terminal failure, its original type (including cancellation) is
+preserved and an ordinary cleanup exception is attached as its cause. A new
+cancellation during cleanup remains terminal. Existing handlers for the base
 `ConnectionClosed` and `RequestTimeout` classes continue to work. Exhausting all
 candidates raises static `ConnectionClosed`; exhausting the total deadline raises
 `RequestTimeout`. No peer-supplied error strings or TLS paths enter new diagnostics.
@@ -73,3 +76,8 @@ repair-execution or deletion authority. Retention's trusted nondecreasing-time o
 durable observation-high-water gate, fresh ownership/byte checks and separate
 authority remain mandatory before future serving or execution. GitHub remains
 operational; project publishers, channels and transport identities remain separate.
+
+Endpoints are frozen caller-owned configuration values. Normal field assignment
+is rejected, and replacement values are validated before connection. This API is
+not a sandbox against code in the same process deliberately bypassing Python
+immutability or changing trusted identity files.

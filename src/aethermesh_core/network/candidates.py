@@ -106,8 +106,11 @@ async def connect_peer_candidates(
                         raise RequestTimeout(
                             "Candidate connection deadline expired."
                         ) from None
-                except BaseException:
-                    await client.close()
+                except BaseException as failure:
+                    try:
+                        await client.close()
+                    except Exception as cleanup:
+                        raise failure from cleanup
                     raise
                 else:
                     return CandidateConnection(client, endpoint, count)
