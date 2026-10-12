@@ -87,21 +87,19 @@ this SDK.
 
 ## Concrete next repair-planning slice
 
-After this audit is reviewed, add a pure bounded planner for **one explicitly
-selected artifact root** using a fresh audit and caller-selected target indices.
-This is a proposed next slice, not an implemented planner or authorization to repair.
-It should produce only candidate inputs, missing targets, conservative resource
-estimates and explicit blocked reasons. It must not fetch, decode, reserve, write,
-advertise, schedule work or reclaim charges.
+The [pure bounded repair planner](artifact-repair-planning.md) now provides
+candidate metadata for one explicitly selected artifact root. It requires four
+distinct verified indices and four configured domains per stripe, carrying audit
+snapshots without granting freshness or execution authority. The current codec
+reconstructs the whole artifact, so candidate input budgets cover every stripe,
+not only stripes containing repair targets. Domain labels are unverified assumptions;
+local copies do not prove independent failure domains.
 
-Require exact project/root/index binding and at least four distinct verified
-fragment indices per affected 4+2 stripe. Multiple request IDs for the same index
-count once; missing, unverified and quarantined bytes never count. Keep existing
-manifest/fragment bounds, cap total planned input reads and output bytes, and make
-unavailable capacity or inadequate inputs explicit. Local copies do not establish
-independent operators or failure domains. Bind the plan to the audit snapshot,
-but require fresh ownership and byte verification again before any future executor
-uses it. Planning is neither admission nor a serving lease.
+It returns bounded inputs/targets/batches, payload estimates and blocked reasons.
+It does not fetch, decode, reserve, write, advertise, schedule work or reclaim
+charges. Fresh ownership and byte verification are required again before any
+future executor uses the candidate. Planning is neither admission nor a serving
+lease.
 
 Before adding an executor, separately specify scratch/output admission, whole-job
 memory and I/O bounds, cancellation and partial-output handling, no-overwrite
