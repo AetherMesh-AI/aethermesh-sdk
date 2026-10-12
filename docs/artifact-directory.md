@@ -66,3 +66,7 @@ sufficient evidence for reclamation. Complete durable ingestion still requires a
 reviewed crash-safe publication protocol, writer fencing, bounded staging,
 explicit orphan resolution and safe reclaim. Network storage/repair and actual
 multi-machine/resource measurements remain later work.
+
+An explicit [bounded ingestion primitive](artifact-ingestion.md) now uses this
+ownership/locking foundation. It preserves failed staging and charges; recovery,
+reclamation and network hosting are still separate work.

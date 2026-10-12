@@ -194,6 +194,20 @@ def _account(
     return tuple(entries), total, blocked
 
 
+def _validate_binding(
+    ledger: ArtifactAdmission,
+    directory: int,
+    ledger_directory: Path,
+    store_id: str,
+    limits: AdmissionLimits,
+) -> None:
+    info = os.fstat(directory)
+    if ledger._directory_binding() != (info.st_dev, info.st_ino):
+        raise ValueError("ledger does not own this directory")
+    if _read(directory, _MARKER) != _binding(ledger_directory, store_id, limits):
+        raise ValueError("owned directory marker or ledger binding mismatch")
+
+
 def inspect_artifact_directory(
     path: Path,
     *,
@@ -221,11 +235,7 @@ def inspect_artifact_directory(
         _directory(path, create=False) as directory,
     ):
         snapshot = ledger.snapshot()
-        info = os.fstat(directory)
-        if ledger._directory_binding() != (info.st_dev, info.st_ino):
-            raise ValueError("ledger does not own this directory")
-        if _read(directory, _MARKER) != _binding(ledger_directory, store_id, limits):
-            raise ValueError("owned directory marker or ledger binding mismatch")
+        _validate_binding(ledger, directory, ledger_directory, store_id, limits)
         entries, total, blocked = _account(
             directory,
             {record.request_id: record.size for record in snapshot.records},
