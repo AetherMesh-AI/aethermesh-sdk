@@ -790,6 +790,10 @@ def ingestion_smoke(cwd: Path) -> None:
     from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
     from aethermesh_core.artifact_directory import initialize_artifact_directory
     from aethermesh_core.artifact_ingestion import ingest_fragment_file
+    from aethermesh_core.artifact_owned_inventory import (
+        OwnedInventorySelection,
+        audit_owned_inventory,
+    )
     from aethermesh_core.artifact_quarantine import (
         FailedStagingRequest,
         inspect_failed_staging,
@@ -872,6 +876,22 @@ def ingestion_smoke(cwd: Path) -> None:
         assert quarantined.path.read_bytes() == b"x" and not failed.exists()
         assert not quarantined.charge_released and not quarantined.retention_confirmed
         assert ledger.snapshot() == charged
+        inventory = audit_owned_inventory(
+            directory,
+            tuple(
+                OwnedInventorySelection(key * 64, pkg.manifest) for key in ("a", "b")
+            ),
+            ledger_directory=ledger_path,
+            store_id="9" * 64,
+            limits=policy,
+            max_read_bytes=1024,
+        )
+        assert [row.status for row in inventory.observations] == [
+            "verified",
+            "quarantined",
+        ]
+        assert inventory.ledger == charged and ledger.snapshot() == charged
+        assert not inventory.retention_confirmed and not inventory.repair_authorized
     finally:
         ledger.close()
     print(
@@ -879,6 +899,7 @@ def ingestion_smoke(cwd: Path) -> None:
     )
     print("Installed verified staging recovery passed; no charge release.")
     print("Installed explicit failed-staging quarantine passed; full charge preserved.")
+    print("Installed owned inventory audit passed; no retention or repair authority.")
 
 
 async def smoke() -> None:

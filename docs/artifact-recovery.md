@@ -92,3 +92,7 @@ a design for copied databases, replaced directories, rollback and interrupted
 initialization. A backup or hash alone is not blanket permission to rebind. There
 is currently no supported marker regeneration, claim reconstruction, ownership
 migration or lost-binding charge-reclamation API.
+
+The unresolved ownership-evidence and rollback decisions are tracked as a distinct
+[deferred restoration gate](artifact-restoration-gate.md). Intact-binding
+[owned inventory audits](artifact-owned-inventory.md) do not bypass that gate.
