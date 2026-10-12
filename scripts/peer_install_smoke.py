@@ -994,6 +994,104 @@ def retention_contract_smoke(
     )
 
 
+def retention_store_smoke(
+    path: Path, ledger_path: Path, manifest: Any, store_id: str, policy: Any
+) -> None:
+    """Persist local intent in an isolated original store, never advertise custody."""
+    from aethermesh_core.artifact_owned_inventory import (
+        OwnedInventorySelection,
+        audit_owned_inventory,
+    )
+    from aethermesh_core.artifact_retention import RetentionPlan, retention_terms
+    from aethermesh_core.artifact_retention_store import (
+        RetentionStore,
+        RetentionStoreLimits,
+    )
+
+    store = RetentionStore(
+        path, ledger_path, store_id, policy, RetentionStoreLimits(1, 3, 8192)
+    )
+    options = {
+        "ledger_directory": ledger_path,
+        "store_id": store_id,
+        "limits": policy,
+        "max_read_bytes": 1024,
+    }
+    selections = (OwnedInventorySelection("c" * 64, manifest),)
+    before = audit_owned_inventory(path, selections, **options)
+    store.enable(expected_ledger_revision=before.ledger.revision, at=1)
+    report = audit_owned_inventory(path, selections, **options)
+    terms = retention_terms(
+        manifest,
+        report,
+        "c" * 64,
+        store_id=store_id,
+        limits=policy,
+        max_duration_seconds=100,
+        max_records=3,
+    )
+    plan = RetentionPlan("d" * 64, terms).advance(
+        "accept",
+        operation_id="e" * 64,
+        expected_revision=0,
+        at=2,
+        until=50,
+        evidence=report,
+    )
+    accepted = store.commit(
+        plan,
+        selections,
+        expected_revision=0,
+        expected_ledger_revision=report.ledger.revision,
+        max_read_bytes=1024,
+    )
+    report = audit_owned_inventory(path, selections, **options)
+    renewed = plan.advance(
+        "renew",
+        operation_id="f" * 64,
+        expected_revision=1,
+        at=20,
+        until=100,
+        evidence=report,
+    )
+    committed = store.commit(
+        renewed,
+        selections,
+        expected_revision=1,
+        expected_ledger_revision=report.ledger.revision,
+        max_read_bytes=1024,
+    )
+    expired = renewed.advance(
+        "expire", operation_id="a" * 64, expected_revision=2, at=100
+    )
+    final = store.commit(
+        expired,
+        (),
+        expected_revision=2,
+        expected_ledger_revision=committed.state.ledger.revision,
+        max_read_bytes=0,
+    )
+    reopened = RetentionStore(
+        path, ledger_path, store_id, policy, store.retention_limits
+    )
+    retry = reopened.commit(
+        plan,
+        selections,
+        expected_revision=0,
+        expected_ledger_revision=accepted.operation.revision - 1,
+        max_read_bytes=1024,
+    )
+    assert retry.replayed and retry.state == final.state == reopened.snapshot()
+    assert final.state.ledger.records == before.ledger.records
+    assert final.state.ledger.charged_bytes == before.ledger.charged_bytes
+    assert final.durable_committed and not final.verification_performed
+    assert not final.retention_confirmed and not final.serving_authorized
+    assert not final.publisher_authorized and final.state.active_count == 0
+    print(
+        "Installed durable local retention intent passed; expiry preserves all charges; no availability claim."
+    )
+
+
 def repair_plan_smoke(cwd: Path) -> None:
     """Local fixture domains are labels, never independent-host evidence."""
     from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
@@ -1076,6 +1174,14 @@ def repair_plan_smoke(cwd: Path) -> None:
     assert not plan.retention_confirmed and plan.requires_revalidation
     print(
         "Installed pure repair planning passed; no execution or failure-domain proof."
+    )
+
+    retention_store_smoke(
+        cwd / "repair-objects-0",
+        cwd / "repair-ledger-0",
+        pkg.manifest,
+        "0" * 64,
+        policy,
     )
 
 

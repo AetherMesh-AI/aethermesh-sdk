@@ -120,24 +120,16 @@ The [lost-binding restoration gate](artifact-restoration-gate.md) remains blocke
 
 ## Acceptance status
 
-- Implemented: pure explicit transition/replay contract, bounded canonical records,
-  exact binding checks, accounting preservation, terminal expiry and cancellation.
-- Implemented tests: acceptance/renewal/expiry roundtrip; exact retries and conflicting
-  IDs; stale revisions; backward clocks; duration/artifact expiry and record budgets;
-  missing/corrupt/quarantined evidence; owner/manifest/quota mismatches; complete
-  observation commitments; malformed/reordered records; purity and cancellation.
-- Required before durable completion: real cooperating-process concurrency against
-  one store (including competing intent IDs for one admission), stale writer
-  rejection, fresh locked audit integration, atomic revision
-  and operation persistence, reopen/replay, disk/database-bound exhaustion, and
-  crashes immediately before commit, immediately after commit and before reply.
-- Required negative persistence cases: copied database, replaced directory, missing/
-  truncated marker or retention table, schema mismatch, stale backup, changed payload,
-  orphan/staging/quarantine conflicts and cancellation at every commit boundary.
-  All failures must preserve bytes and full charges without restoring ownership.
-- Still unimplemented: durable retention commit/renewal/expiry, actual claim serving,
-  reclamation, repair execution, authenticated remote retention or replication.
+The pure preparation API implements bounded lifecycle transitions, exact replay,
+clock/interval/record limits, evidence commitments and cancellation without I/O.
+The subsequent [durable local retention store](artifact-retention-store.md) adds
+explicit original-ledger schema enablement, fresh locked audit, atomic persistence,
+concurrent-writer fencing, restart/replay, capacity reserves and process-crash tests.
+Its documentation details the tested persistence boundary and remaining limitations.
+Preparation remains pure; only a successful store receipt records a durable commit.
 
-The original owned-inventory and pure repair-planning foundations remain usable.
-This preparation does not mark STORE-1 complete or authorize network hosting,
-paid resources, larger quotas, new identities, app orchestration or restoration.
+Actual claim serving, restoration, reclamation, repair execution, authenticated
+remote retention and replication remain unimplemented. The owned-inventory and
+pure repair-planning foundations remain usable. Neither slice marks STORE-1
+complete or authorizes network hosting, paid resources, larger quotas, new
+identities or app orchestration.

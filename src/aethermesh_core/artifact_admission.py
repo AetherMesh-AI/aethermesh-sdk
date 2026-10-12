@@ -1,7 +1,7 @@
 """Conservative durable local admission metadata, not a retained-object service.
 
-All records remain charged. No expiry, release, reclamation, file deletion or
-hosting is implemented. Verification is a recorded observation, not retention.
+All records remain charged. Retention metadata may be explicitly enabled by
+artifact_retention_store; it never releases charges or deletes/serves files. Verification is a recorded observation, not retention.
 """
 
 from __future__ import annotations
@@ -109,6 +109,8 @@ class ArtifactAdmission:
         if not isinstance(limits, AdmissionLimits):
             raise TypeError("explicit admission limits required")
         self._store_id = store_id
+        self._directory_path = directory
+        self._retention_reserved = 0
         self._limits = limits
         self._db = open_private_database(directory, "admission.sqlite3")
         try:
@@ -149,7 +151,11 @@ class ArtifactAdmission:
         rows = self._db.execute(
             "SELECT version, store_id, policy, revision FROM catalog"
         ).fetchmany(2)
-        if len(rows) != 1 or rows[0][:3] != (1, self._store_id, self._limits.canonical):
+        if (
+            len(rows) != 1
+            or rows[0][0] not in (1, 2)
+            or rows[0][1:3] != (self._store_id, self._limits.canonical)
+        ):
             raise ValueError("admission version, identity or policy mismatch")
         revision = rows[0][3]
         _integer(revision, 0, _MAX_REVISION)
@@ -171,16 +177,28 @@ class ArtifactAdmission:
             or any(record.revision > revision for record in records)
         ):
             raise ValueError("inconsistent admission inventory")
-        return AdmissionSnapshot(revision, charged, records)
+        snapshot = AdmissionSnapshot(revision, charged, records)
+        self._retention_reserved = 0
+        if rows[0][0] == 2:
+            from ._artifact_retention_db import read_state
+
+            self._retention_reserved = read_state(self, snapshot).active_count
+        elif (
+            self._db.execute(
+                "SELECT name FROM sqlite_master WHERE name LIKE 'retention_%'"
+            ).fetchone()
+            is not None
+        ):
+            raise ValueError("retention tables require explicit version-2 enablement")
+        return snapshot
 
     def snapshot(self) -> AdmissionSnapshot:
         with self._db:
             self._db.execute("BEGIN")
             return self._snapshot()
 
-    @staticmethod
-    def _advance(snapshot: AdmissionSnapshot) -> int:
-        if snapshot.revision == _MAX_REVISION:
+    def _advance(self, snapshot: AdmissionSnapshot) -> int:
+        if snapshot.revision + 1 + self._retention_reserved > _MAX_REVISION:
             raise ValueError("admission lifetime revision limit reached")
         return snapshot.revision + 1
 
