@@ -1,6 +1,7 @@
 """Durable metadata admission with conservative charges and real-process races."""
 
 import dataclasses
+import errno
 import os
 import sqlite3
 import subprocess
@@ -218,6 +219,78 @@ class AdmissionTests(unittest.TestCase):
                 )
                 self.assertEqual(record.request_id, REQUEST)
                 self.assertEqual(ledger.snapshot().charged_bytes, 4)
+
+    def test_open_during_commit_tolerates_removed_optional_journal(self):
+        first = self.reserve()
+        journal = self.directory / "admission.sqlite3-journal"
+        original_lstat = Path.lstat
+        commits = []
+        with closing(sqlite3.connect(self.directory / "admission.sqlite3")) as writer:
+            writer.execute("UPDATE catalog SET revision=revision+1")
+            self.assertTrue(journal.exists())
+
+            def commit_before_journal_stat(path, *args, **kwargs):
+                if path == journal:
+                    self.assertEqual(commits, [])
+                    writer.commit()
+                    commits.append(True)
+                    self.assertFalse(journal.exists())
+                return original_lstat(path, *args, **kwargs)
+
+            with (
+                patch.object(Path, "lstat", commit_before_journal_stat),
+                closing(
+                    ArtifactAdmission(
+                        self.directory, store_id=STORE, limits=self.limits
+                    )
+                ) as reopened,
+            ):
+                snapshot = reopened.snapshot()
+                self.assertEqual(snapshot.records, (first,))
+                self.assertEqual(snapshot.charged_bytes, 4)
+                self.assertEqual(snapshot.revision, first.revision + 1)
+        self.assertEqual(commits, [True])
+
+    def test_optional_journal_preserves_unsafe_file_and_other_error_rejection(self):
+        journal = self.directory / "admission.sqlite3-journal"
+        original_lstat = Path.lstat
+        for error in (errno.EACCES, errno.EIO, errno.ENOTDIR):
+            with self.subTest(error=error):
+
+                def fail_journal_stat(path, *args, selected_error=error, **kwargs):
+                    if path == journal:
+                        raise OSError(selected_error, "journal inspection failed")
+                    return original_lstat(path, *args, **kwargs)
+
+                with (
+                    patch.object(Path, "lstat", fail_journal_stat),
+                    self.assertRaises(OSError) as caught,
+                ):
+                    ArtifactAdmission(
+                        self.directory, store_id=STORE, limits=self.limits
+                    )
+                self.assertEqual(caught.exception.errno, error)
+        for kind in ("symlink", "directory", "public", "hardlink"):
+            with self.subTest(kind=kind):
+                if kind == "symlink":
+                    journal.symlink_to(self.root / "absent")
+                elif kind == "directory":
+                    journal.mkdir(mode=0o700)
+                elif kind == "hardlink":
+                    journal.hardlink_to(self.directory / "admission.sqlite3")
+                else:
+                    journal.touch(mode=0o644)
+                    journal.chmod(0o644)
+                try:
+                    with self.assertRaises(ValueError):
+                        ArtifactAdmission(
+                            self.directory, store_id=STORE, limits=self.limits
+                        )
+                finally:
+                    if kind == "directory":
+                        journal.rmdir()
+                    else:
+                        journal.unlink()
 
     def test_limits_and_corrupted_inventory_fail_closed(self):
         with self.assertRaises(ValueError):

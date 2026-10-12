@@ -51,8 +51,11 @@ def open_private_database(directory: Path, filename: str) -> sqlite3.Connection:
     database = directory / filename
     _private(database, directory=False)
     journal = directory / (filename + "-journal")
-    if journal.exists() or journal.is_symlink():
+    try:
         _private(journal, directory=False)
+    except FileNotFoundError:
+        # DELETE-mode commits may remove the optional journal during inspection.
+        pass
     db = sqlite3.connect(database.as_uri() + "?mode=rw", uri=True, timeout=5)
     try:
         _configure(db)
