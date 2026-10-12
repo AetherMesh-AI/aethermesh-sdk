@@ -100,13 +100,81 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(inspect_artifact_directory(self.path, **self.options).blocked)
 
     def test_partial_and_corrupt_staging_are_preserved(self):
-        for data in (b"x", b"bad!"):
+        for data in (b"", b"x", b"bad!", b"oversize"):
             self.stage.write_bytes(data)
+            os.utime(self.stage, (1, 1))
+            before = self.stage.stat()
             with self.assertRaises(ValueError):
                 self.recover()
             self.assertEqual(self.stage.read_bytes(), data)
+            after = self.stage.stat()
+            self.assertEqual(after.st_ino, before.st_ino)
+            self.assertEqual(after.st_mtime_ns, before.st_mtime_ns)
+            self.assertEqual(after.st_ctime_ns, before.st_ctime_ns)
             self.assertFalse(self.final.exists())
             self.assertEqual(self.ledger.snapshot(), self.before)
+
+    def test_lost_or_corrupt_marker_preserves_payload_and_admission(self):
+        marker = self.path / "store.json"
+        original = marker.read_bytes()
+        for damaged in (None, b"", b"{}", original[:-1]):
+            with self.subTest(marker=damaged):
+                if damaged is None:
+                    marker.unlink()
+                else:
+                    marker.write_bytes(damaged)
+                    marker.chmod(0o600)
+                with (
+                    patch("aethermesh_core.artifact_recovery._verify") as verify,
+                    self.assertRaises((ValueError, FileNotFoundError)),
+                ):
+                    self.recover()
+                verify.assert_not_called()
+                self.assertEqual(self.stage.read_bytes(), self.pkg.fragments[0])
+                self.assertFalse(self.final.exists())
+                self.assertEqual(self.ledger.snapshot(), self.before)
+                if damaged is None:
+                    self.assertFalse(marker.exists())
+                else:
+                    self.assertEqual(marker.read_bytes(), damaged)
+                marker.write_bytes(original)
+                marker.chmod(0o600)
+
+    def test_dropped_claim_table_cannot_be_recovered_from_filename(self):
+        with self.ledger._db:
+            self.ledger._db.execute("DROP TABLE owned_directory")
+        with self.assertRaisesRegex(ValueError, "does not own"):
+            self.recover()
+        self.assertIsNone(self.ledger._directory_binding())
+        self.assertEqual(self.stage.read_bytes(), self.pkg.fragments[0])
+        self.assertFalse(self.final.exists())
+        self.assertEqual(self.ledger.snapshot(), self.before)
+
+    def test_missing_or_conflicting_claim_is_not_reconstructed(self):
+        info = self.path.stat()
+        marker = (self.path / "store.json").read_bytes()
+        for claim in (None, (1, info.st_dev, info.st_ino + 1), (2, 0, 1)):
+            with self.subTest(claim=claim):
+                with self.ledger._db:
+                    self.ledger._db.execute("DELETE FROM owned_directory")
+                    if claim is not None:
+                        self.ledger._db.execute(
+                            "INSERT INTO owned_directory VALUES (?, ?, ?)", claim
+                        )
+                with (
+                    patch("aethermesh_core.artifact_recovery._verify") as verify,
+                    self.assertRaises(ValueError),
+                ):
+                    self.recover()
+                verify.assert_not_called()
+                self.assertEqual(
+                    self.ledger._db.execute("SELECT * FROM owned_directory").fetchall(),
+                    [] if claim is None else [claim],
+                )
+                self.assertEqual((self.path / "store.json").read_bytes(), marker)
+                self.assertEqual(self.stage.read_bytes(), self.pkg.fragments[0])
+                self.assertFalse(self.final.exists())
+                self.assertEqual(self.ledger.snapshot(), self.before)
 
     def test_different_inode_final_and_external_link_block_recovery(self):
         self.final.touch(mode=0o600)
