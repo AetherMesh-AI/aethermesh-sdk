@@ -23,7 +23,7 @@ from .network.content_files import selected_parent
 from .network.transfer_files import _private, _read
 
 _MARKER = "store.json"
-_MAX_ENTRIES = 385  # Marker plus final and staging names for 192 reservations.
+_MAX_ENTRIES = 385  # Marker plus at most two names per 192 reservations.
 
 
 @dataclass(frozen=True)
@@ -135,7 +135,7 @@ def initialize_artifact_directory(
 
 
 def _entry(name: str, info: os.stat_result, known: set[str]) -> DirectoryEntry:
-    match = re.fullmatch(r"([0-9a-f]{64})\.(fragment|staging)", name)
+    match = re.fullmatch(r"([0-9a-f]{64})\.(fragment|staging|quarantine)", name)
     request = match[1] if match else None
     phase = match[2] if match else "unknown"
     size = info.st_size if stat.S_ISREG(info.st_mode) else None
@@ -183,6 +183,12 @@ def _account(
         )
         for entry in entries
     )
+    quarantined = {entry.request_id for entry in entries if entry.phase == "quarantine"}
+    if any(
+        entry.phase == "fragment" and entry.request_id in quarantined
+        for entry in entries
+    ):
+        blocked = True
     for info, linked in inodes.values():
         if not stat.S_ISREG(info.st_mode):
             continue

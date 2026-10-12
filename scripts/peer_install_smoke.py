@@ -790,6 +790,11 @@ def ingestion_smoke(cwd: Path) -> None:
     from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
     from aethermesh_core.artifact_directory import initialize_artifact_directory
     from aethermesh_core.artifact_ingestion import ingest_fragment_file
+    from aethermesh_core.artifact_quarantine import (
+        FailedStagingRequest,
+        inspect_failed_staging,
+        quarantine_failed_staging,
+    )
     from aethermesh_core.artifact_recovery import recover_verified_fragment
 
     policy = AdmissionLimits(max_bytes=1024, max_objects=2)
@@ -846,12 +851,34 @@ def ingestion_smoke(cwd: Path) -> None:
     ledger = ArtifactAdmission(ledger_path, store_id="9" * 64, limits=policy)
     try:
         assert ledger.snapshot().charged_bytes == len(pkg.fragments[0])
+        ledger.reserve("b" * 64, pkg.manifest, 0, expected_digest=pkg.manifest.digest)
+        charged = ledger.snapshot()
+        failed = directory / ("b" * 64 + ".staging")
+        failed.touch(mode=0o600)
+        failed.write_bytes(b"x")
+        selected = FailedStagingRequest(
+            directory,
+            pkg.manifest,
+            0,
+            pkg.manifest.digest,
+            "b" * 64,
+            ledger_path,
+            "9" * 64,
+            policy,
+            1024,
+        )
+        evidence = inspect_failed_staging(selected)
+        quarantined = quarantine_failed_staging(selected, evidence)
+        assert quarantined.path.read_bytes() == b"x" and not failed.exists()
+        assert not quarantined.charge_released and not quarantined.retention_confirmed
+        assert ledger.snapshot() == charged
     finally:
         ledger.close()
     print(
         "Installed fragment ingestion passed; conservative charges, no retention lease."
     )
     print("Installed verified staging recovery passed; no charge release.")
+    print("Installed explicit failed-staging quarantine passed; full charge preserved.")
 
 
 async def smoke() -> None:
