@@ -301,3 +301,78 @@ class RepairPlanTests(unittest.TestCase):
             expected = len(set(domains)) == 4
             result = self.plan(sources)
             self.assertEqual(result.status == "candidate", expected)
+
+    def test_multi_edge_matching_agrees_with_exhaustive_permutation_oracle(self):
+        # Enumerate every 3-by-3 edge graph, plus a fixed fourth index/domain.
+        # The independent oracle tries all assignments, not augmenting paths.
+        for edges in itertools.product((False, True), repeat=9):
+            sources = tuple(
+                inventory(
+                    self.pkg,
+                    domain,
+                    tuple(index for index in range(3) if edges[index * 3 + domain]),
+                )
+                for domain in range(3)
+            ) + (inventory(self.pkg, 3, (3,)),)
+            expected = any(
+                all(edges[index * 3 + domain] for index, domain in enumerate(order))
+                for order in itertools.permutations(range(3))
+            )
+            with self.subTest(edges=edges):
+                result = self.plan(sources)
+                self.assertEqual(result.status == "candidate", expected)
+                if expected:
+                    self.assertEqual(
+                        {row.fragment_index for row in result.inputs}, {0, 1, 2, 3}
+                    )
+                    self.assertEqual(
+                        len({row.failure_domain for row in result.inputs}), 4
+                    )
+                    available = {
+                        (row.fragment_index, source.failure_domain)
+                        for source in sources
+                        for row in source.report.ledger.records
+                    }
+                    self.assertTrue(
+                        all(
+                            (row.fragment_index, row.failure_domain) in available
+                            for row in result.inputs
+                        )
+                    )
+                    self.assertEqual(result, self.plan(tuple(reversed(sources))))
+                else:
+                    self.assertEqual(result.inputs, ())
+                    self.assertEqual(result.input_batches, ())
+
+    def test_unequal_final_stripe_exact_and_one_byte_short_budgets(self):
+        for source_size, final_size in ((17, 1), (20, 1), (21, 2), (25, 3)):
+            self.pkg = package(bytes(range(source_size)), fragment_bytes=4)
+            sources = tuple(inventory(self.pkg, i, (i, i + 6)) for i in range(4))
+            read_bytes = 16 + 4 * final_size
+            for targets, write_bytes in (
+                ((4, 10), 4 + final_size),
+                ((10,), final_size),
+            ):
+                with self.subTest(source_size=source_size, targets=targets):
+                    limits = planning.RepairPlanLimits(read_bytes, write_bytes, 3, 2)
+                    result = self.plan(sources, targets=targets, limits=limits)
+                    self.assertEqual(result.status, "candidate")
+                    self.assertEqual(result.required_read_bytes, read_bytes)
+                    self.assertEqual(result.required_write_bytes, write_bytes)
+                    self.assertEqual(
+                        [row.size for row in result.inputs], [4] * 4 + [final_size] * 4
+                    )
+                    self.assertEqual(sum(row.size for row in result.inputs), read_bytes)
+                    self.assertEqual(
+                        [len(batch) for batch in result.input_batches], [3, 3, 2]
+                    )
+                    for short in (
+                        replace(limits, max_read_bytes=read_bytes - 1),
+                        replace(limits, max_write_bytes=write_bytes - 1),
+                    ):
+                        blocked = self.plan(sources, targets=targets, limits=short)
+                        self.assertEqual(blocked.reason, "byte_budget")
+                        self.assertEqual(blocked.required_read_bytes, read_bytes)
+                        self.assertEqual(blocked.required_write_bytes, write_bytes)
+                        self.assertEqual(blocked.inputs, ())
+                        self.assertEqual(blocked.input_batches, ())
