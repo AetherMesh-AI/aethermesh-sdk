@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import stat
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -19,7 +19,6 @@ from .artifact_admission import (
     AdmissionConflict,
     AdmissionLimits,
     AdmissionSnapshot,
-    ArtifactAdmission,
     FragmentAdmission,
 )
 from .artifact_codec import (
@@ -30,7 +29,7 @@ from .artifact_codec import (
     _integer,
     _trusted,
 )
-from .artifact_directory import _account, _close_known, _directory, _validate_binding
+from .artifact_directory import _account, _close_known, _owned_ledger
 from .artifact_files import _read_fragment, _stamp
 from .network.content import MAX_CONTENT_BYTES
 from .network.content_files import selected_parent
@@ -129,6 +128,10 @@ def _publish(
     os.link(
         stage, final, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False
     )
+    _finish_publication(directory, fd, stage, final)
+
+
+def _finish_publication(directory: int, fd: int, stage: str, final: str) -> None:
     _same_file(fd, directory, final)
     os.fsync(directory)
     _same_file(fd, directory, stage)
@@ -209,13 +212,7 @@ def ingest_fragment_file(
     if not source.is_absolute():
         raise ValueError("ingestion requires an explicit absolute source path")
     _cancel(check_cancel)
-    with (
-        closing(
-            ArtifactAdmission(ledger_directory, store_id=store_id, limits=limits)
-        ) as ledger,
-        _directory(path, create=False) as directory,
-    ):
-        _validate_binding(ledger, directory, ledger_directory, store_id, limits)
+    with _owned_ledger(path, ledger_directory, store_id, limits) as (ledger, directory):
         initial = ledger.snapshot()
         entries, _, blocked = _account(
             directory,

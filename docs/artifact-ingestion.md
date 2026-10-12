@@ -75,3 +75,7 @@ publication. These are process-crash tests, not power-loss or multi-machine proo
 A multi-block fixture checks actual payload read requests and Python allocation
 bounds; it is not an ARM-device or OS-RSS benchmark. Safe orphan recovery, charge
 reclamation, replication/repair and network storage service remain unfinished.
+
+[Explicit verified-staging recovery](artifact-recovery.md) can now finish a
+positively verified publication or remove its proven same-inode staging alias.
+It preserves charges and refuses partial, corrupt or ambiguous evidence.

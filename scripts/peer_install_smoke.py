@@ -790,6 +790,7 @@ def ingestion_smoke(cwd: Path) -> None:
     from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
     from aethermesh_core.artifact_directory import initialize_artifact_directory
     from aethermesh_core.artifact_ingestion import ingest_fragment_file
+    from aethermesh_core.artifact_recovery import recover_verified_fragment
 
     policy = AdmissionLimits(max_bytes=1024, max_objects=2)
     ledger_path, directory = cwd / "ingestion-ledger", cwd / "ingestion-objects"
@@ -826,6 +827,22 @@ def ingestion_smoke(cwd: Path) -> None:
         assert not result.publisher_authorized
         if not retry:
             source.unlink()
+    alias = directory / ("a" * 64 + ".staging")
+    alias.hardlink_to(result.path)
+    recovery = recover_verified_fragment(
+        directory,
+        pkg.manifest,
+        0,
+        expected_digest=pkg.manifest.digest,
+        request_id="a" * 64,
+        ledger_directory=ledger_path,
+        store_id="9" * 64,
+        limits=policy,
+        max_read_bytes=1024,
+    )
+    assert recovery.outcome == "removed_verified_alias" and not alias.exists()
+    assert not recovery.charge_released and not recovery.retention_confirmed
+    assert not recovery.publisher_authorized
     ledger = ArtifactAdmission(ledger_path, store_id="9" * 64, limits=policy)
     try:
         assert ledger.snapshot().charged_bytes == len(pkg.fragments[0])
@@ -834,6 +851,7 @@ def ingestion_smoke(cwd: Path) -> None:
     print(
         "Installed fragment ingestion passed; conservative charges, no retention lease."
     )
+    print("Installed verified staging recovery passed; no charge release.")
 
 
 async def smoke() -> None:
