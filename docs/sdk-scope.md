@@ -15,6 +15,18 @@ echo diagnostics. See [the network foundation](network-foundation.md). Existing
 local simulations, file-backed inboxes and localhost endpoints remain reference
 foundations. An advertised capability is not proof of remote AI execution.
 
+## Optional AI owner onboarding
+
+Generic SDK/network connectivity, peer updates and opaque artifact utilities must
+remain usable without an AetherMesh AI owner account, wallet or fleet-onboarding
+flow. Existing explicit TLS peer trust is a separate transport concern.
+
+Future decentralized owner-account creation, linking to an already authorized
+online node, or recovery/import belongs only behind explicit enablement of the
+AetherMesh AI capability. This is a scope boundary, not an implemented account
+system or permission to generate credentials, implement cryptography or deploy
+accounts. Project publisher/release authority remains separate.
+
 ## End objectives and acceptance evidence
 
 1. **A headless application-facing SDK.** Keep a documented, versioned API for
