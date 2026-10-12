@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "now": 1000,
+  "max_event_age": 30,
+  "namespace": [
+    {
+      "lineage": "routing-family",
+      "name": "Compass"
+    },
+    {
+      "lineage": "planning-family",
+      "name": "Loom"
+    },
+    {
+      "lineage": "resources-family",
+      "name": "Tempo"
+    },
+    {
+      "lineage": "python-family",
+      "name": "Ash"
+    },
+    {
+      "lineage": "typescript-family",
+      "name": "Ember"
+    },
+    {
+      "lineage": "evaluation-family",
+      "name": "Lens"
+    },
+    {
+      "lineage": "data-family",
+      "name": "Grove"
+    },
+    {
+      "lineage": "monitoring-family",
+      "name": "Vigil"
+    }
+  ],
+  "routes": [
+    {
+      "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "python",
+      "artifact": "1111111111111111111111111111111111111111111111111111111111111111",
+      "lineage": "python-family"
+    },
+    {
+      "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "typescript",
+      "artifact": "2222222222222222222222222222222222222222222222222222222222222222",
+      "lineage": "typescript-family"
+    },
+    {
+      "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "planning",
+      "artifact": "3333333333333333333333333333333333333333333333333333333333333333",
+      "lineage": "planning-family"
+    }
+  ],
+  "events": [
+    {
+      "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "python",
+      "artifact": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sequence": 1,
+      "state": "executing",
+      "at": 990
+    },
+    {
+      "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "typescript",
+      "artifact": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sequence": 1,
+      "state": "executing",
+      "at": 990
+    },
+    {
+      "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "planning",
+      "artifact": "3333333333333333333333333333333333333333333333333333333333333333",
+      "sequence": 1,
+      "state": "queued",
+      "at": 990
+    }
+  ]
+}
