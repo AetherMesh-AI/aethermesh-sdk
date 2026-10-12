@@ -150,7 +150,11 @@ def _entry(name: str, info: os.stat_result, known: set[str]) -> DirectoryEntry:
 
 
 def _account(
-    directory: int, sizes: dict[str, int], check_cancel: CheckCancel | None
+    directory: int,
+    sizes: dict[str, int],
+    check_cancel: CheckCancel | None,
+    *,
+    recovering: str | None = None,
 ) -> tuple[tuple[DirectoryEntry, ...], int, bool]:
     with os.scandir(directory) as scan:
         names = sorted(entry.name for entry in islice(scan, _MAX_ENTRIES + 1))
@@ -172,7 +176,13 @@ def _account(
         inodes[key][1].append(entry)
     total = 0
     charged_usage: dict[str, int] = {}
-    blocked = any(entry.problem is not None for entry in entries)
+    blocked = any(
+        entry.problem is not None
+        and not (
+            entry.request_id == recovering and entry.problem == "unfinished_staging"
+        )
+        for entry in entries
+    )
     for info, linked in inodes.values():
         if not stat.S_ISREG(info.st_mode):
             continue
@@ -208,6 +218,20 @@ def _validate_binding(
         raise ValueError("owned directory marker or ledger binding mismatch")
 
 
+@contextmanager
+def _owned_ledger(
+    path: Path, ledger_directory: Path, store_id: str, limits: AdmissionLimits
+) -> Iterator[tuple[ArtifactAdmission, int]]:
+    with (
+        closing(
+            ArtifactAdmission(ledger_directory, store_id=store_id, limits=limits)
+        ) as ledger,
+        _directory(path, create=False) as directory,
+    ):
+        _validate_binding(ledger, directory, ledger_directory, store_id, limits)
+        yield ledger, directory
+
+
 def inspect_artifact_directory(
     path: Path,
     *,
@@ -228,14 +252,8 @@ def inspect_artifact_directory(
     observations, not ingestion grants; no charges or files are changed.
     """
     _cancel(check_cancel)
-    with (
-        closing(
-            ArtifactAdmission(ledger_directory, store_id=store_id, limits=limits)
-        ) as ledger,
-        _directory(path, create=False) as directory,
-    ):
+    with _owned_ledger(path, ledger_directory, store_id, limits) as (ledger, directory):
         snapshot = ledger.snapshot()
-        _validate_binding(ledger, directory, ledger_directory, store_id, limits)
         entries, total, blocked = _account(
             directory,
             {record.request_id: record.size for record in snapshot.records},
