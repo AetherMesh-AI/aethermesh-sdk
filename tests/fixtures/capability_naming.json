@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "baseline": {
+    "artifact": "1111111111111111111111111111111111111111111111111111111111111111",
+    "parent": null,
+    "lineage": "python-family",
+    "schema": "3333333333333333333333333333333333333333333333333333333333333333",
+    "trainer": "fixture-trainer",
+    "intended": "python"
+  },
+  "candidate": {
+    "artifact": "2222222222222222222222222222222222222222222222222222222222222222",
+    "parent": "1111111111111111111111111111111111111111111111111111111111111111",
+    "lineage": "python-family",
+    "schema": "3333333333333333333333333333333333333333333333333333333333333333",
+    "trainer": "fixture-trainer",
+    "intended": "python"
+  },
+  "reports": {
+    "baseline": {
+      "artifact": "1111111111111111111111111111111111111111111111111111111111111111",
+      "baseline": "1111111111111111111111111111111111111111111111111111111111111111",
+      "lineage": "python-family",
+      "schema": "3333333333333333333333333333333333333333333333333333333333333333",
+      "evaluation": "4444444444444444444444444444444444444444444444444444444444444444",
+      "dataset": "5555555555555555555555555555555555555555555555555555555555555555",
+      "taxonomy": "310fdfdba5c487fc4c1e26621c9fd28cc676a62637a065139df594d07c4b30c4",
+      "evaluator": "fixture-evaluator",
+      "metrics": {
+        "accuracy": {
+          "value": 0.8,
+          "uncertainty": 0.005
+        },
+        "memory": {
+          "value": 1024,
+          "uncertainty": 0
+        }
+      }
+    },
+    "candidate": {
+      "artifact": "2222222222222222222222222222222222222222222222222222222222222222",
+      "baseline": "1111111111111111111111111111111111111111111111111111111111111111",
+      "lineage": "python-family",
+      "schema": "3333333333333333333333333333333333333333333333333333333333333333",
+      "evaluation": "4444444444444444444444444444444444444444444444444444444444444444",
+      "dataset": "5555555555555555555555555555555555555555555555555555555555555555",
+      "taxonomy": "310fdfdba5c487fc4c1e26621c9fd28cc676a62637a065139df594d07c4b30c4",
+      "evaluator": "fixture-evaluator",
+      "metrics": {
+        "accuracy": {
+          "value": 0.9,
+          "uncertainty": 0.005
+        },
+        "memory": {
+          "value": 900,
+          "uncertainty": 0
+        }
+      }
+    }
+  },
+  "taxonomy": {
+    "revision": 1,
+    "rules": [
+      {
+        "label": "python",
+        "metric": "accuracy",
+        "minimum": 0.7,
+        "maximum": 1,
+        "words": [
+          "Ash",
+          "Cedar"
+        ]
+      }
+    ]
+  },
+  "policy": {
+    "baseline": "1111111111111111111111111111111111111111111111111111111111111111",
+    "baseline_version": 3,
+    "evaluation": "4444444444444444444444444444444444444444444444444444444444444444",
+    "dataset": "5555555555555555555555555555555555555555555555555555555555555555",
+    "taxonomy": "310fdfdba5c487fc4c1e26621c9fd28cc676a62637a065139df594d07c4b30c4",
+    "evaluators": [
+      "fixture-evaluator"
+    ],
+    "metrics": [
+      {
+        "name": "accuracy",
+        "direction": "higher",
+        "gain": 0.05,
+        "regression": 0,
+        "uncertainty": 0.01,
+        "minimum": 0,
+        "maximum": 1
+      },
+      {
+        "name": "memory",
+        "direction": "lower",
+        "gain": 0,
+        "regression": 0,
+        "uncertainty": 0,
+        "minimum": 0,
+        "maximum": 2048
+      }
+    ]
+  },
+  "namespace": [
+    {
+      "lineage": "routing-family",
+      "name": "Compass"
+    },
+    {
+      "lineage": "planning-family",
+      "name": "Loom"
+    },
+    {
+      "lineage": "resources-family",
+      "name": "Tempo"
+    },
+    {
+      "lineage": "python-family",
+      "name": "Ash"
+    },
+    {
+      "lineage": "typescript-family",
+      "name": "Ember"
+    },
+    {
+      "lineage": "evaluation-family",
+      "name": "Lens"
+    },
+    {
+      "lineage": "data-family",
+      "name": "Grove"
+    },
+    {
+      "lineage": "monitoring-family",
+      "name": "Vigil"
+    }
+  ],
+  "hints": {
+    "training_run_count": 1,
+    "self_description": "Synthetic fixture only."
+  }
+}

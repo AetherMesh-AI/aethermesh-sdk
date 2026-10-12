@@ -1,7 +1,8 @@
 # Capability naming and evidence-based promotion plan
 
-**Status: initial names and intended roles accepted; implementations and learned
-capabilities remain planned.** This adds a staged AI-participation task alongside
+**Status: initial names and intended roles accepted; a bounded deterministic
+[naming/promotion fixture](capability-fixture.md) is implemented. Learned
+capabilities, real evaluation provenance and committed promotion remain planned.** This adds a staged AI-participation task alongside
 current peer/storage work. The roster is not eight trained models already available.
 It does not change repository identity, transport trust, project publisher rules,
 generic SDK onboarding or resource ceilings. Trainers and application orchestration

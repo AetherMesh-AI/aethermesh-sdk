@@ -23,6 +23,30 @@ import aethermesh_core
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def capability_fixture_smoke() -> None:
+    """Check installed pure fixture APIs; these are not trained or live experts."""
+    from aethermesh_core.capability_fixture import evaluate_naming_fixture
+    from aethermesh_core.contributor_fixture import project_contributor_fixture
+
+    fixtures = ROOT / "tests" / "fixtures"
+    pins = json.loads((fixtures / "capability_naming_pins.json").read_bytes())
+    result = evaluate_naming_fixture(
+        (fixtures / "capability_naming.json").read_bytes(),
+        trusted_report_digests=tuple(pins["reports"]),
+        expected_policy_digest=pins["policy"],
+    )
+    assert result.status == "eligible" and result.proposed_name == "Ash"
+    assert (result.current_internal_version, result.proposed_internal_version) == (3, 4)
+    assert result.simulated and not result.promotion_committed
+    assert not result.publication_authorized and not result.live_capability_verified
+    assert not result.namespace_reserved
+    activity = project_contributor_fixture(
+        (fixtures / "contributor_activity.json").read_bytes()
+    )
+    assert activity.names == ("Ash", "Ember")
+    assert activity.simulated and not activity.live_activity_verified
+
+
 def learning_state_smoke(cwd: Path) -> None:
     """Exercise installed local recovery independently of all peer transports."""
     from aethermesh_core.learning_state import (
@@ -1113,6 +1137,7 @@ async def smoke() -> None:
         directory_smoke(cwd)
         ingestion_smoke(cwd)
         repair_plan_smoke(cwd)
+        capability_fixture_smoke()
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
