@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .artifact_admission import AdmissionConflict, AdmissionLimits, ArtifactAdmission
+from .artifact_admission import (
+    AdmissionConflict,
+    AdmissionLimits,
+    AdmissionSnapshot,
+    ArtifactAdmission,
+    FragmentAdmission,
+)
 from .artifact_codec import (
     MAX_FRAGMENT_BYTES,
     ArtifactManifest,
@@ -150,6 +156,25 @@ def _existing(
         _close_known(fd)
 
 
+def _expected_reservation(
+    initial: AdmissionSnapshot, record: FragmentAdmission
+) -> AdmissionSnapshot:
+    existing = next(
+        (row for row in initial.records if row.request_id == record.request_id), None
+    )
+    if existing is not None:
+        if record != existing:
+            raise AdmissionConflict("admission changed during reservation")
+        return initial
+    if record.revision != initial.revision + 1:
+        raise AdmissionConflict("admission changed during reservation")
+    return AdmissionSnapshot(
+        initial.revision + 1,
+        initial.charged_bytes + record.size,
+        tuple(sorted((*initial.records, record), key=lambda row: row.request_id)),
+    )
+
+
 def ingest_fragment_file(
     path: Path,
     source: Path,
@@ -206,6 +231,8 @@ def ingest_fragment_file(
             request_id, manifest, index, expected_digest=expected_digest
         )
         admitted = ledger.snapshot()
+        if admitted != _expected_reservation(initial, record):
+            raise AdmissionConflict("admission changed during reservation")
         _cancel(check_cancel)
         final, stage = request_id + ".fragment", request_id + ".staging"
         existing = any(entry.name == final for entry in entries)

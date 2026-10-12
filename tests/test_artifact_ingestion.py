@@ -572,3 +572,137 @@ with patch("aethermesh_core.artifact_ingestion.os.link", side_effect=link):
         self.assertEqual(sum(sizes), 2 * size)
         self.assertEqual(result.bytes_read, 2 * size)
         self.assertLess(peak, 1024 * 1024)
+
+    def test_invalidation_after_reserve_cannot_become_a_new_baseline(self):
+        original = ArtifactAdmission.reserve
+        from aethermesh_core.artifact_ingestion import _source
+
+        def invalidate(ledger, *args, **kwargs):
+            record = original(ledger, *args, **kwargs)
+            self.ledger.invalidate(record.request_id, expected_revision=record.revision)
+            return record
+
+        with (
+            patch.object(ArtifactAdmission, "reserve", invalidate),
+            patch(
+                "aethermesh_core.artifact_ingestion._source", wraps=_source
+            ) as opened,
+        ):
+            with self.assertRaisesRegex(ValueError, "during reservation"):
+                self.ingest()
+            opened.assert_not_called()
+        self.assertFalse(self.stage.exists())
+        self.assertFalse(self.final.exists())
+        self.assertEqual(self.charged(), 4)
+        self.assertEqual(self.ledger.snapshot().records[0].state, "reserved")
+
+    def test_unrelated_admission_during_reserve_is_not_absorbed(self):
+        original = ArtifactAdmission.reserve
+
+        def add(ledger, *args, **kwargs):
+            record = original(ledger, *args, **kwargs)
+            original(
+                self.ledger,
+                "c" * 64,
+                self.pkg.manifest,
+                1,
+                expected_digest=self.pkg.manifest.digest,
+            )
+            return record
+
+        with (
+            patch.object(ArtifactAdmission, "reserve", add),
+            patch("aethermesh_core.artifact_ingestion._source") as opened,
+        ):
+            with self.assertRaisesRegex(ValueError, "during reservation"):
+                self.ingest()
+            opened.assert_not_called()
+        self.assertEqual(self.charged(), 8)
+        self.assertFalse(self.stage.exists())
+
+    def test_intervening_update_before_own_reserve_rejects_shifted_revision(self):
+        original = ArtifactAdmission.reserve
+
+        def add_first(ledger, *args, **kwargs):
+            original(
+                self.ledger,
+                "c" * 64,
+                self.pkg.manifest,
+                1,
+                expected_digest=self.pkg.manifest.digest,
+            )
+            return original(ledger, *args, **kwargs)
+
+        with (
+            patch.object(ArtifactAdmission, "reserve", add_first),
+            patch("aethermesh_core.artifact_ingestion._source") as opened,
+        ):
+            with self.assertRaisesRegex(ValueError, "during reservation"):
+                self.ingest()
+            opened.assert_not_called()
+        self.assertEqual(self.charged(), 8)
+        self.assertFalse(self.final.exists())
+
+    def test_existing_reservation_revision_change_before_retry_is_rejected(self):
+        self.ledger.reserve(
+            self.request, self.pkg.manifest, 0, expected_digest=self.pkg.manifest.digest
+        )
+        original = ArtifactAdmission.reserve
+
+        def invalidate_first(ledger, *args, **kwargs):
+            record = self.ledger.snapshot().records[0]
+            self.ledger.invalidate(record.request_id, expected_revision=record.revision)
+            return original(ledger, *args, **kwargs)
+
+        with (
+            patch.object(ArtifactAdmission, "reserve", invalidate_first),
+            patch("aethermesh_core.artifact_ingestion._source") as opened,
+        ):
+            with self.assertRaisesRegex(ValueError, "during reservation"):
+                self.ingest()
+            opened.assert_not_called()
+        self.assertEqual(self.charged(), 4)
+        self.assertFalse(self.stage.exists())
+
+    def test_process_invalidation_between_reserve_and_snapshot_rejects_io(self):
+        original = ArtifactAdmission.reserve
+        child = """
+import sys
+from pathlib import Path
+from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
+ledger = ArtifactAdmission(Path(sys.argv[1]), store_id="a"*64,
+                           limits=AdmissionLimits(max_bytes=16, max_objects=2))
+try:
+    ledger.invalidate(sys.argv[2], expected_revision=int(sys.argv[3]))
+finally:
+    ledger.close()
+"""
+
+        def interleave(ledger, *args, **kwargs):
+            record = original(ledger, *args, **kwargs)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    child,
+                    str(self.ledger_path),
+                    record.request_id,
+                    str(record.revision),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return record
+
+        with (
+            patch.object(ArtifactAdmission, "reserve", interleave),
+            patch("aethermesh_core.artifact_ingestion._source") as opened,
+        ):
+            with self.assertRaisesRegex(ValueError, "during reservation"):
+                self.ingest()
+            opened.assert_not_called()
+        self.assertEqual(self.charged(), 4)
+        self.assertFalse(self.stage.exists())
