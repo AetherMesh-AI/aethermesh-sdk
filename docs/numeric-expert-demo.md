@@ -131,3 +131,7 @@ then authenticated portable evidence and replication with explicit authority and
 resource policy. Training participation, peer identity, project publisher rights,
 and release channels must remain separate. This example adds none of those
 permissions merely because a process can connect to a peer.
+
+The [evaluation-only naming bridge](numeric-naming-bridge.md) reuses the documented
+fixed model coefficients and evaluator without training or changing this journal.
+It produces fixture proposals while retaining the numeric prototype identity.
