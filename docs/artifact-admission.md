@@ -96,3 +96,7 @@ Unknown/orphan files are not enumerated or charged by this API. Establishing an
 owned retained store, durable path ownership, writer fencing, crash-safe ingestion,
 orphan reconciliation, safe reclaim and bounded repair remains future work. Never
 release charges or execute downloaded bytes because this audit found a file missing.
+
+The next [owned-directory prototype](artifact-directory.md) adds an explicit
+single-directory binding and bounded non-destructive orphan accounting. It does
+not yet provide payload ingestion or reclamation.

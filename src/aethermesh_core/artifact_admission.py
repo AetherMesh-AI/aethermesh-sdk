@@ -306,3 +306,38 @@ class ArtifactAdmission:
             self._db.execute("BEGIN IMMEDIATE")
             snapshot, record = self._record(request_id, expected_revision)
             return self._update(snapshot, record, "reserved")
+
+    def _directory_binding(self) -> tuple[int, int] | None:
+        table = self._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='owned_directory'"
+        ).fetchone()
+        if table is None:
+            return None
+        rows = self._db.execute(
+            "SELECT version, device, inode FROM owned_directory"
+        ).fetchmany(2)
+        if len(rows) != 1 or rows[0][0] != 1:
+            raise ValueError("invalid owned-directory binding")
+        device, inode = rows[0][1:]
+        _integer(device, 0, 2**63 - 1)
+        _integer(inode, 1, 2**63 - 1)
+        return device, inode
+
+    def _bind_directory(self, device: int, inode: int) -> None:
+        """Internal one-time local ownership claim; never replace an old binding."""
+        _integer(device, 0, 2**63 - 1)
+        _integer(inode, 1, 2**63 - 1)
+        with self._db:
+            self._db.execute("BEGIN IMMEDIATE")
+            snapshot = self._snapshot()
+            existing = self._directory_binding()
+            if existing is not None:
+                raise AdmissionConflict("ledger already owns a directory")
+            revision = self._advance(snapshot)
+            self._db.execute(
+                "CREATE TABLE owned_directory (version INTEGER, device INTEGER, inode INTEGER)"
+            )
+            self._db.execute(
+                "INSERT INTO owned_directory VALUES (1, ?, ?)", (device, inode)
+            )
+            self._db.execute("UPDATE catalog SET revision=?", (revision,))
