@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import sqlite3
-import stat
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from itertools import islice
 from pathlib import Path
 
+from ._local_sqlite import (
+    create_private_database,
+    open_private_database,
+    sync_directory_creation,
+)
 from .network.config import validate_fingerprint, validate_project_id
 
 _STATE_LIMIT = 65536
@@ -88,18 +89,6 @@ class LearningConflict(ValueError):
     """Stale coordinator/revision or duplicate evidence; no write committed."""
 
 
-def _private(path: Path, *, directory: bool) -> None:
-    info = path.lstat()
-    kind = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
-    if (
-        not kind
-        or info.st_uid != os.getuid()
-        or info.st_mode & 0o077
-        or (not directory and (info.st_nlink != 1 or info.st_size > 4194304))
-    ):
-        raise ValueError("learning storage must be private, owned, and physical")
-
-
 class LearningJournal:
     """One local job, atomic state/checkpoint replacement, and replay tombstones.
 
@@ -112,28 +101,9 @@ class LearningJournal:
     def __init__(self, directory: Path, binding: LearningBinding) -> None:
         if not isinstance(binding, LearningBinding):
             raise TypeError("binding must be a LearningBinding")
-        if directory != directory.resolve():
-            raise ValueError("learning directory must be an absolute physical path")
-        _private(directory, directory=True)
-        if any(
-            path.name not in {"state.sqlite3", "state.sqlite3-journal"}
-            for path in islice(directory.iterdir(), 3)
-        ):
-            raise ValueError("unexpected learning storage entries")
-        database = directory / "state.sqlite3"
-        _private(database, directory=False)
-        journal = directory / "state.sqlite3-journal"
-        if journal.exists() or journal.is_symlink():
-            _private(journal, directory=False)
         self.binding = binding
-        self._db = sqlite3.connect(database.as_uri() + "?mode=rw", uri=True, timeout=5)
+        self._db = open_private_database(directory, "state.sqlite3")
         try:
-            self._db.execute("PRAGMA trusted_schema=OFF")
-            self._db.execute("PRAGMA journal_mode=DELETE")
-            self._db.execute("PRAGMA synchronous=EXTRA")
-            if self._db.execute("PRAGMA page_size").fetchone()[0] != 4096:
-                raise ValueError("unsupported learning page size")
-            self._db.execute("PRAGMA max_page_count=1024")
             row = self._db.execute("SELECT version, binding FROM job").fetchall()
             if row != [(1, binding.canonical)]:
                 raise ValueError("unsupported journal or learning binding mismatch")
@@ -159,18 +129,8 @@ class LearningJournal:
         if not isinstance(binding, LearningBinding):
             raise TypeError("binding must be a LearningBinding")
         _payload(state, checkpoint)
-        if directory != directory.resolve():
-            raise ValueError("learning directory must be an absolute physical path")
-        directory.mkdir(mode=0o700)
-        database = directory / "state.sqlite3"
-        descriptor = os.open(database, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        os.close(descriptor)
-        db = sqlite3.connect(database)
+        db = create_private_database(directory, "state.sqlite3")
         try:
-            db.execute("PRAGMA page_size=4096")
-            db.execute("PRAGMA journal_mode=DELETE")
-            db.execute("PRAGMA synchronous=EXTRA")
-            db.execute("PRAGMA max_page_count=1024")
             with db:
                 db.execute(
                     "CREATE TABLE job (version INTEGER, binding TEXT, revision INTEGER, "
@@ -189,14 +149,7 @@ class LearningJournal:
                 )
         finally:
             db.close()
-        # SQLite syncs its rollback journal and database; persist the new directory
-        # entry as well. This is local durability subject to the filesystem/hardware.
-        for path in (directory, directory.parent):
-            descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+        sync_directory_creation(directory)
         return cls(directory, binding)
 
     def close(self) -> None:
