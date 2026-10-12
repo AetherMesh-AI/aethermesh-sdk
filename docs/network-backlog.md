@@ -93,8 +93,8 @@ No Eidolon checkout or app integration changes are included in this backlog.
   to versioned measured capability reports. Bootstrap report-to-label proposals
   from an explicit evaluation taxonomy/rules, with an optional later small namer
   trained on approved report-label pairs. Public display is a single-word
-  contributor name only, without a version suffix or required model picker. The
-  router chooses experts; capability labels, schemas, lineage, versions and exact
+  contributor name only, without a version suffix. There is no model picker; the
+  router selects experts; capability labels, schemas, lineage, versions and exact
   checkpoints stay internal or in details. Name proposals use verified profiles,
   collision handling and stable lineage. Contributor status must reflect actual
   routed participation, never decorative or fabricated activity. Deterministic

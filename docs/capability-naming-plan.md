@@ -55,8 +55,8 @@ Keep these namespaces separate:
 A new training run, checkpoint or display-name edit need not earn a new capability
 version. A compatibility break cannot be hidden by a measured capability gain.
 The public display is a single-word contributor name **only**, with no version
-number beside it and no required model picker. The router selects eligible experts
-for each request. Capability descriptions, schemas, lineage, versions and exact
+number beside it. There is no model picker; the router selects experts for each
+request. Capability descriptions, schemas, lineage, versions and exact
 checkpoints stay internal or in technical details. A message such as “Ash and Ember
 are working on this request” illustrates name-only participation. It is only
 truthful when those accepted families actually execute that request; the roster
@@ -146,8 +146,10 @@ independent-evaluator implementation.
 First implement rule-based internal label proposals, a bounded single-word family
 name proposal and deterministic promotion eligibility with blocked reasons.
 Use a small reserved test vocabulary and a caller-supplied fixture namespace map.
-For this initial prototype only, propose 1–32 ASCII-letter words with case-insensitive
-collision comparison; broader language/confusable-name policy remains undecided.
+For this initial prototype only, propose a single word containing 1–32 ASCII
+letters, with case-insensitive collision comparison. This is a bounded prototype
+implementation choice, not a user language requirement; broader language and
+confusable-name policy remains undecided.
 A collision with another lineage must select another available test word or return
 blocked, never overwrite the mapping, append a task description or claim a global
 reservation. A known lineage retains its family name. The pure result proposes a
@@ -160,7 +162,8 @@ call providers, train a classifier, create credentials, publish a release or exe
 Acceptance fixtures must cover:
 
 - Public contributor output contains single-word names only: no version suffix,
-  task-description name or required model picker. Versions remain in details.
+  task-description name. There is no model picker; the router selects experts.
+  Versions remain in details.
 - Contributor names/status derive from actual bound routing/execution events.
   Missing, merely selected, queued, stale, duplicate, out-of-order, failed and
   cancelled events cannot fabricate an active worker; fixture activity stays
