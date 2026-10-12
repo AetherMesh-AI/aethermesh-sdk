@@ -754,6 +754,36 @@ def admission_smoke(cwd: Path) -> None:
     )
 
 
+def directory_smoke(cwd: Path) -> None:
+    """Initialize only an ephemeral owned layout; never ingest real payloads."""
+    from aethermesh_core.artifact_admission import AdmissionLimits
+    from aethermesh_core.artifact_directory import (
+        initialize_artifact_directory,
+        inspect_artifact_directory,
+    )
+
+    policy = AdmissionLimits(max_bytes=1024, max_objects=2)
+    path = cwd / "owned-layout"
+    initialize_artifact_directory(
+        path, ledger_directory=cwd / "catalog", store_id="7" * 64, limits=policy
+    )
+    report = inspect_artifact_directory(
+        path, ledger_directory=cwd / "catalog", store_id="7" * 64, limits=policy
+    )
+    assert not report.blocked and report.charged_bytes > 0
+    assert not report.content_verified and not report.retention_confirmed
+    assert not report.publisher_authorized
+    orphan = path / "unowned"
+    orphan.touch(mode=0o600)
+    orphan.write_bytes(b"orphan")
+    blocked = inspect_artifact_directory(
+        path, ledger_directory=cwd / "catalog", store_id="7" * 64, limits=policy
+    )
+    assert blocked.blocked and blocked.observed_regular_bytes == 6
+    assert blocked.charged_bytes == report.charged_bytes and orphan.exists()
+    print("Installed directory ownership passed; no ingestion or reclamation.")
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -884,6 +914,7 @@ async def smoke() -> None:
             await stop(server)
         await artifact_smoke(pki, cwd)
         admission_smoke(cwd)
+        directory_smoke(cwd)
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
