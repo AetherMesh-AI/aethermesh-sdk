@@ -18,6 +18,7 @@ class RepairInventory:
     source_id: str
     failure_domain: str
     report: OwnedInventoryReport
+    eligible_request_ids: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,14 @@ def _inventories(
         directories.add(report.directory_identity)
         databases.add(report.database_identity)
         _validate_report(report)
+        allowed = selected.eligible_request_ids
+        if allowed is not None and (
+            not isinstance(allowed, tuple)
+            or len(allowed) > 192
+            or len(set(allowed)) != len(allowed)
+            or not set(allowed) <= {row.request_id for row in report.ledger.records}
+        ):
+            raise ValueError("invalid repair eligibility filter")
     return tuple(sorted(inventories, key=lambda item: item.source_id))
 
 
@@ -234,6 +243,13 @@ def plan_artifact_repair(
     codec._cancel(check_cancel)
     evidence = _inventories(inventories, check_cancel)
     available = _inputs(manifest, evidence, check_cancel)
+    filters = {item.source_id: item.eligible_request_ids for item in evidence}
+    usable = tuple(
+        item
+        for item in available
+        if filters[item.source_id] is None
+        or item.request_id in (filters[item.source_id] or ())
+    )
     reason = None
     chosen: list[RepairInput] = []
     if deleted or now >= manifest.expires_at:
@@ -245,7 +261,7 @@ def plan_artifact_repair(
     else:
         for start in range(0, len(manifest.fragments), 6):
             codec._cancel(check_cancel)
-            selected = _stripe(start, available, check_cancel)
+            selected = _stripe(start, usable, check_cancel)
             if not selected:
                 reason = "insufficient_distinct_indices_or_domains"
                 chosen.clear()
