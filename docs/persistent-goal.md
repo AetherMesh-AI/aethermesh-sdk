@@ -30,6 +30,22 @@ entire network platform. Training, builders, deployment and native updates have
 separate owners; the SDK can expose their protocol interfaces when real services
 exist.
 
+## Full hands-off goal
+
+Aim for sustained unattended useful work, permitted training, independent
+evaluation, authorized promotion, monitoring, supported recovery and rollback
+within standing resource and authority limits. Use deterministic components first
+where appropriate; learned replacements require evidence. Unsafe or ambiguous work
+preserves progress and defers while other eligible work continues. This goal does
+not override trust, credentials, spending, publisher authority or deferred ownership
+restoration, and it does not promise universal recovery.
+
+The [capability naming and acceptance plan](capability-naming-plan.md) records the
+accepted initial families: Compass, Loom, Tempo, Ash, Ember, Lens, Grove and Vigil.
+They are planned roles, not eight trained models already available. Public display
+uses names only; the router selects experts, versions/profiles remain internal or
+in details, and contributor activity must reflect actual routed participation.
+
 ## Decision rule
 
 A change should improve the SDK's real connectivity, public contracts,

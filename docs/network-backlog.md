@@ -7,19 +7,18 @@ rename the repository or authorize deployment. AER means Adaptive Expert Routing
 
 ## Status and ownership
 
-Snapshot: 2026-10-12, main `fe0a4fb97a942f91d6482de4365fe3714df068e5`.
+Snapshot: 2026-10-12, main `96c6a3ab67f9db11e8ff96e3d4022d62fa300162`.
 Implemented foundations include installed-package authenticated direct peers,
 project-scoped bounded opaque content exchange, explicit publisher verification
 boundaries, local learning experiments, a bounded 4+2 artifact codec and placement
-simulation, and selected-file verification. The artifact codec currently caps
-originals at 8 MiB. These are not public discovery, durable network storage,
-useful general model training, or Internet deployment evidence.
-
-Streaming recovery [PR 313](https://github.com/AetherMesh-AI/aethermesh-sdk/pull/313)
-and durable local admission [PR 314](https://github.com/AetherMesh-AI/aethermesh-sdk/pull/314)
-are pending independent review in this snapshot. Admission records alone do not
-prove retention, reclaim space or reserve physical disk. Do not mark dependent
-tasks complete merely because a draft or interface exists.
+simulation, selected-file verification, durable local admission, directory
+ownership, payload ingestion, explicit verified recovery and failed-staging
+quarantine. The artifact codec currently caps originals at 8 MiB. These are not
+public discovery, durable network storage, useful general model training or
+Internet deployment evidence. Admission and quarantined files remain charged;
+local audits and successful uploads do not prove future retention or authorize
+reclamation. Do not mark dependent tasks complete merely because a prototype,
+draft or interface exists.
 
 Every unchecked task below is **proposed**, including items with prototype
 precursors. Completion requires a linked reviewed change and acceptance evidence.
@@ -89,6 +88,25 @@ No Eidolon checkout or app integration changes are included in this backlog.
   learning from model partitioning and inference replicas. Accept incompatible,
   stale, poisoned and interrupted update tests, independent held-out/regression
   evaluation, verified promotion and rollback. Training engines remain external.
+- [ ] **LEARN-3: Capability naming and evidence-based promotion.** Preserve immutable
+  artifact/checkpoint IDs and lineage; bind intended tasks, schemas and provenance
+  to versioned measured capability reports. Bootstrap report-to-label proposals
+  from an explicit evaluation taxonomy/rules, with an optional later small namer
+  trained on approved report-label pairs. Public display is a single-word
+  contributor name only, without a version suffix. There is no model picker; the
+  router selects experts; capability labels, schemas, lineage, versions and exact
+  checkpoints stay internal or in details. Name proposals use verified profiles,
+  collision handling and stable lineage. Contributor status must reflect actual
+  routed participation, never decorative or fabricated activity. Deterministic
+  policy awards internal capability versions from independently verified gains and regression/resource
+  limits, never training-run count or candidate self-description. Keep API/model
+  compatibility versions separate. Permit experimental/unclassified outcomes and
+  rerun comparable baselines when evaluation or taxonomy changes. Start with the
+  bounded [fixture-driven decision prototype](capability-naming-plan.md), not a
+  training job or release publisher. Record the accepted initial roster: Compass,
+  Loom, Tempo, Ash, Ember, Lens, Grove and Vigil, with intended internal roles in
+  that plan. These are not eight trained available models. Internal version syntax
+  remains undecided. Depends on LEARN-2 evidence and CTRL-1 limits for later deployment.
 - [ ] **CTRL-1: Deterministic enforcement first.** Enforce resource, permission,
   privacy and spending ceilings outside candidate model control. Define safe
   degraded operation, bounded queues, cancellation and deferral of ineligible jobs
@@ -155,6 +173,24 @@ review must precede issuance or spend; record approvals and unresolved risks.
   stale, unavailable and conflicting-provider tests and a project-gateway removal
   drill. Neither the project RPC nor explorer may become mandatory authority.
   Depends on ECON-1 and NET-3; wallet support never gates generic SDK connectivity.
+
+## Cross-stage goal — Full hands-off operation
+
+- [ ] **AUTO-1: Sustained unattended useful work and improvement.** Aim for the
+  complete bounded loop: routing, planning, resource forecasting/enforcement,
+  useful execution, permitted training, independent evaluation, authorized
+  promotion, monitoring, supported fault recovery and rollback. Start deterministic
+  components where appropriate; learned replacements must earn promotion against
+  measured baselines. Follow the [staged acceptance plan](capability-naming-plan.md#full-hands-off-goal-and-staged-acceptance)
+  with predeclared workload/duration/quality/resource thresholds, zero manual
+  interventions for eligible routine work and honest completion/deferral evidence.
+  Test operator disappearance through independent alternatives without replacing
+  missing authority. Unsafe/ambiguous work preserves progress/evidence/charges and
+  defers while other eligible work continues inside remaining budgets. No universal
+  recovery promise, marker regeneration, trust/credential/spending override or
+  unapproved deployment follows from this goal. Application orchestration, trainers
+  and production operations stay outside the SDK. Depends on the applicable
+  NET/STORE/LEARN/CTRL milestones; this item is not marked complete by naming models.
 
 ## Evidence and sequencing rule
 
