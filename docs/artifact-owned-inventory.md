@@ -54,6 +54,9 @@ SQLite waits remain bounded but synchronous; OS calls are not callback-preemptib
 ## Gates before advertising retention
 
 A fresh local audit is necessary input, not enough evidence for a retention claim.
+The [local retention lifecycle preparation](artifact-retention-lifecycle.md) now
+provides a pure bounded record contract and defines the durable backend gate; it
+does not commit retention or change these requirements.
 A future retained-store service must separately define and test this lifecycle:
 
 1. **Accept responsibility explicitly.** Pin exact project/artifact/fragment and

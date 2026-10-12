@@ -68,57 +68,79 @@ def audit_owned_inventory(
         ledger,
         directory,
     ):
-        snapshot = ledger.snapshot()
-        chosen = inventory._preflight(
-            snapshot.records,
-            tuple(
-                inventory.InventorySelection(
-                    item.request_id,
-                    item.manifest,
-                    path / (item.request_id + ".fragment"),
-                )
-                for item in selections
-            ),
+        return _audit_locked(
+            path,
+            selections,
+            ledger=ledger,
+            directory=directory,
+            ledger_directory=ledger_directory,
+            store_id=store_id,
+            limits=limits,
+            max_read_bytes=max_read_bytes,
+            check_cancel=check_cancel,
         )
-        if snapshot.charged_bytes > max_read_bytes:
-            raise ValueError("aggregate owned-inventory read budget exceeded")
-        sizes = {record.request_id: record.size for record in snapshot.records}
-        before = directories._account(directory, sizes, check_cancel)
-        entries, total, blocked = before
-        if blocked:
-            raise ValueError("owned inventory requires explicit directory recovery")
-        quarantined = {
-            entry.request_id for entry in entries if entry.phase == "quarantine"
-        }
-        observations = []
-        for record in snapshot.records:
-            codec._cancel(check_cancel)
-            selected = chosen[record.request_id]
-            if record.request_id in quarantined:
-                observed = OwnedFragmentObservation(
-                    record, path / (record.request_id + ".quarantine"), "quarantined"
-                )
-            else:
-                result = inventory._observe(record, selected, check_cancel)
-                observed = OwnedFragmentObservation(
-                    record, selected.path, result.status
-                )
-            observations.append(observed)
-        if directories._account(directory, sizes, check_cancel) != before:
-            raise ValueError("owned directory accounting changed during audit")
+
+
+def _audit_locked(
+    path: Path,
+    selections: tuple[OwnedInventorySelection, ...],
+    *,
+    ledger: admission.ArtifactAdmission,
+    directory: int,
+    ledger_directory: Path,
+    store_id: str,
+    limits: admission.AdmissionLimits,
+    max_read_bytes: int,
+    check_cancel: codec.CheckCancel | None = None,
+    transactional: bool = False,
+) -> OwnedInventoryReport:
+    """Shared audit body; caller owns the directory lock and optional write transaction."""
+    snapshot_reader = ledger._snapshot if transactional else ledger.snapshot
+    snapshot = snapshot_reader()
+    chosen = inventory._preflight(
+        snapshot.records,
+        tuple(
+            inventory.InventorySelection(
+                item.request_id,
+                item.manifest,
+                path / (item.request_id + ".fragment"),
+            )
+            for item in selections
+        ),
+    )
+    if snapshot.charged_bytes > max_read_bytes:
+        raise ValueError("aggregate owned-inventory read budget exceeded")
+    sizes = {record.request_id: record.size for record in snapshot.records}
+    before = directories._account(directory, sizes, check_cancel)
+    entries, total, blocked = before
+    if blocked:
+        raise ValueError("owned inventory requires explicit directory recovery")
+    quarantined = {entry.request_id for entry in entries if entry.phase == "quarantine"}
+    observations = []
+    for record in snapshot.records:
         codec._cancel(check_cancel)
-        directories._validate_binding(
-            ledger, directory, ledger_directory, store_id, limits
-        )
-        if ledger.snapshot() != snapshot:
-            raise admission.AdmissionConflict("owned inventory changed during audit")
-        owner = os.fstat(directory)
-        database = (ledger_directory / "admission.sqlite3").stat()
-        return OwnedInventoryReport(
-            snapshot,
-            (owner.st_dev, owner.st_ino),
-            (database.st_dev, database.st_ino),
-            snapshot.charged_bytes,
-            total,
-            tuple(observations),
-        )
+        selected = chosen[record.request_id]
+        if record.request_id in quarantined:
+            observed = OwnedFragmentObservation(
+                record, path / (record.request_id + ".quarantine"), "quarantined"
+            )
+        else:
+            result = inventory._observe(record, selected, check_cancel)
+            observed = OwnedFragmentObservation(record, selected.path, result.status)
+        observations.append(observed)
+    if directories._account(directory, sizes, check_cancel) != before:
+        raise ValueError("owned directory accounting changed during audit")
+    codec._cancel(check_cancel)
+    directories._validate_binding(ledger, directory, ledger_directory, store_id, limits)
+    if snapshot_reader() != snapshot:
+        raise admission.AdmissionConflict("owned inventory changed during audit")
+    owner = os.fstat(directory)
+    database = (ledger_directory / "admission.sqlite3").stat()
+    return OwnedInventoryReport(
+        snapshot,
+        (owner.st_dev, owner.st_ino),
+        (database.st_dev, database.st_ino),
+        snapshot.charged_bytes,
+        total,
+        tuple(observations),
+    )
