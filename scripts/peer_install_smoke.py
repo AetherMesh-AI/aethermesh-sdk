@@ -47,6 +47,29 @@ def capability_fixture_smoke() -> None:
     assert activity.simulated and not activity.live_activity_verified
 
 
+async def numeric_naming_bridge_smoke(cwd: Path) -> None:
+    """Evaluate existing numeric artifacts without invoking their trainer."""
+    code, out, err = await command(
+        sys.executable,
+        "-I",
+        str(ROOT / "examples" / "numeric_naming_bridge.py"),
+        cwd=cwd,
+    )
+    assert code == 0 and not err and len(out) <= 65536, (code, err)
+    result = json.loads(out)
+    assert result["prototype"] == "synthetic-quadratic-expert"
+    assert result["actual_numeric_evaluation"] and not result["training_performed"]
+    assert not result["public_family_assigned"] and not result["production_promotion"]
+    accepted = result["proposals"]["existing_fitted"]["decision"]
+    rejected = result["proposals"]["regression_control"]["decision"]
+    assert accepted["status"] == "eligible" and accepted["proposed_name"] == "Numeric"
+    assert rejected["status"] == "experimental" and rejected["proposed_name"] is None
+    assert accepted["simulated"] and not accepted["promotion_committed"]
+    print(
+        "Installed numeric naming bridge passed: evaluation only; no family assignment."
+    )
+
+
 def learning_state_smoke(cwd: Path) -> None:
     """Exercise installed local recovery independently of all peer transports."""
     from aethermesh_core.learning_state import (
@@ -1138,6 +1161,7 @@ async def smoke() -> None:
         ingestion_smoke(cwd)
         repair_plan_smoke(cwd)
         capability_fixture_smoke()
+        await numeric_naming_bridge_smoke(cwd)
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
