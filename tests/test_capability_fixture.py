@@ -1,6 +1,7 @@
 """Synthetic evidence must never become publication or live capability authority."""
 
 import copy
+import decimal
 import json
 import unittest
 from pathlib import Path
@@ -291,3 +292,62 @@ class NamingFixtureTests(unittest.TestCase):
 
             with self.subTest(stop=stop), self.assertRaises(InterruptedError):
                 evaluate(fixture(), check_cancel=cancel)
+
+    def test_gate_decisions_ignore_ambient_decimal_context(self):
+        accepted = fixture()
+        for report in accepted["reports"].values():
+            report["metrics"]["accuracy"]["uncertainty"] = 0
+        accepted["reports"]["candidate"]["metrics"]["accuracy"]["value"] = 0.85
+        rejected = copy.deepcopy(accepted)
+        rejected["reports"]["candidate"]["metrics"]["accuracy"]["value"] = 0.849
+        rounded_up = fixture()
+        rounded_up["reports"]["candidate"]["metrics"]["accuracy"]["value"] = 0.84
+        cases = [accepted, rejected, rounded_up]
+        for uncertainty in (1e-30, 5e-324):
+            tiny = copy.deepcopy(accepted)
+            tiny["reports"]["candidate"]["metrics"]["accuracy"]["uncertainty"] = (
+                uncertainty
+            )
+            self.assertIn("insufficient_gain", evaluate(tiny).reasons)
+            cases.append(tiny)
+        classified = copy.deepcopy(cases[3])
+        classified["policy"]["metrics"][0]["gain"] = 0.04
+        classified["taxonomy"]["rules"][0]["minimum"] = 0.85
+        retax(classified)
+        self.assertEqual(evaluate(classified).status, "unclassified")
+        resource = copy.deepcopy(cases[3])
+        resource["policy"]["metrics"][0].update(gain=0.04, maximum=0.85)
+        self.assertIn("resource_or_uncertainty", evaluate(resource).reasons)
+        regression = copy.deepcopy(accepted)
+        regression["reports"]["candidate"]["metrics"]["memory"].update(
+            value=1024, uncertainty=1e-30
+        )
+        regression["policy"]["metrics"][1]["uncertainty"] = 1
+        self.assertIn("regression", evaluate(regression).reasons)
+        cases.extend((classified, resource, regression))
+        expected = tuple(evaluate(case) for case in cases)
+        self.assertEqual(expected[0].status, "eligible")
+        self.assertIn("insufficient_gain", expected[1].reasons)
+        self.assertIn("insufficient_gain", expected[2].reasons)
+        for precision in (1, 2, 28, 100, 350):
+            for rounding in (
+                decimal.ROUND_DOWN,
+                decimal.ROUND_UP,
+                decimal.ROUND_HALF_EVEN,
+                decimal.ROUND_FLOOR,
+                decimal.ROUND_CEILING,
+            ):
+                with (
+                    self.subTest(precision=precision, rounding=rounding),
+                    decimal.localcontext() as context,
+                ):
+                    context.prec = precision
+                    context.rounding = rounding
+                    context.Emax = 1
+                    context.Emin = -1
+                    for signal in context.traps:
+                        context.traps[signal] = True
+                    self.assertEqual(tuple(evaluate(case) for case in cases), expected)
+                    self.assertFalse(any(context.flags.values()))
+                    with self.assertRaises(ValueError):
+                        naming._number(10**12 + 1)

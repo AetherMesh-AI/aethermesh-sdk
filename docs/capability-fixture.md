@@ -48,7 +48,8 @@ necessary to establish that two differently named actors are independent.
 
 Metrics must match policy exactly. Conservative uncertainty intervals must satisfy
 resource/value bounds, every regression budget and each required positive gain.
-Decimal comparison avoids binary floating-point subtraction at policy boundaries.
+Exact rational comparisons of decoded numeric values avoid binary floating-point
+subtraction and do not depend on ambient Decimal precision, rounding or traps.
 Missing/conflicting evidence or failed gates returns experimental with no proposed
 name or version increment. Passing evidence that does not classify the intended
 capability returns unclassified. Internal versions stop at 4096. No training-run

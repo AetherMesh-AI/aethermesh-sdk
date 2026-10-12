@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from decimal import Decimal
+from fractions import Fraction
 from typing import Any, Literal
 
 from .artifact_codec import CheckCancel, _cancel, _integer
@@ -75,11 +75,11 @@ def _digest(value: Any) -> str:
     return str(value)
 
 
-def _number(value: Any) -> Decimal:
+def _number(value: Any) -> Fraction:
     if type(value) not in (int, float):
         raise ValueError("fixture metric must be a finite number")
-    result = Decimal(str(value))
-    if not result.is_finite() or abs(result) > 10**12:
+    result = Fraction(str(value))
+    if abs(result) > 10**12:
         raise ValueError("fixture metric magnitude bound")
     return result
 
