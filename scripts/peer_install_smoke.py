@@ -902,6 +902,84 @@ def ingestion_smoke(cwd: Path) -> None:
     print("Installed owned inventory audit passed; no retention or repair authority.")
 
 
+def repair_plan_smoke(cwd: Path) -> None:
+    """Local fixture domains are labels, never independent-host evidence."""
+    from aethermesh_core.artifact_admission import AdmissionLimits, ArtifactAdmission
+    from aethermesh_core.artifact_codec import ArtifactLimits, package_artifact
+    from aethermesh_core.artifact_directory import initialize_artifact_directory
+    from aethermesh_core.artifact_ingestion import ingest_fragment_file
+    from aethermesh_core.artifact_owned_inventory import (
+        OwnedInventorySelection,
+        audit_owned_inventory,
+    )
+    from aethermesh_core.artifact_repair_plan import (
+        RepairInventory,
+        RepairPlanLimits,
+        plan_artifact_repair,
+    )
+
+    pkg = package_artifact(
+        b"synthetic repair fixture",
+        project="repair-fixture",
+        kind="dataset",
+        data_class="synthetic",
+        expires_at=4102444800,
+        limits=ArtifactLimits(),
+    )
+    policy = AdmissionLimits(max_bytes=1024, max_objects=1)
+    inventories = []
+    for index in range(4):
+        ledger_path, path = (
+            cwd / f"repair-ledger-{index}",
+            cwd / f"repair-objects-{index}",
+        )
+        store_id, request_id = f"{index:064x}", "c" * 64
+        ArtifactAdmission.create(ledger_path, store_id=store_id, limits=policy).close()
+        initialize_artifact_directory(
+            path, ledger_directory=ledger_path, store_id=store_id, limits=policy
+        )
+        source = cwd / f"repair-source-{index}"
+        source.write_bytes(pkg.fragments[index])
+        ingest_fragment_file(
+            path,
+            source,
+            pkg.manifest,
+            index,
+            expected_digest=pkg.manifest.digest,
+            request_id=request_id,
+            max_read_bytes=1024,
+            ledger_directory=ledger_path,
+            store_id=store_id,
+            limits=policy,
+        )
+        report = audit_owned_inventory(
+            path,
+            (OwnedInventorySelection(request_id, pkg.manifest),),
+            max_read_bytes=1024,
+            ledger_directory=ledger_path,
+            store_id=store_id,
+            limits=policy,
+        )
+        inventories.append(
+            RepairInventory(f"fixture-{index}", f"fictitious-domain-{index}", report)
+        )
+    plan = plan_artifact_repair(
+        pkg.manifest,
+        tuple(inventories),
+        (4, 5),
+        expected_digest=pkg.manifest.digest,
+        limits=RepairPlanLimits(1024, 1024, 2, 2),
+        now=1,
+    )
+    assert plan.status == "candidate" and len(plan.inputs) == 4
+    assert all(len(batch) <= 2 for batch in plan.input_batches)
+    assert not plan.execution_authorized and not plan.failure_domains_verified
+    assert not plan.retention_confirmed and plan.requires_revalidation
+    print(
+        "Installed pure repair planning passed; no execution or failure-domain proof."
+    )
+
+
 async def smoke() -> None:
     if Path(aethermesh_core.__file__).resolve().is_relative_to(ROOT):
         raise RuntimeError("acceptance requires a wheel installed outside the checkout")
@@ -1034,6 +1112,7 @@ async def smoke() -> None:
         admission_smoke(cwd)
         directory_smoke(cwd)
         ingestion_smoke(cwd)
+        repair_plan_smoke(cwd)
         learning_state_smoke(cwd)
         await numeric_expert_smoke(cwd)
         await content_smoke(peer, pki, pins, cwd)
