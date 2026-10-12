@@ -59,3 +59,40 @@ idempotent recovery, revision fencing, policy binding, conservative charges and
 private/exclusive file setup. Process-crash tests do not establish power-loss or
 multi-machine durability. Full repository/installed-package validation and
 independent review are required before publication or integration with hosting.
+
+## Read-only restart reconciliation
+
+`artifact_inventory.reconcile_inventory(ledger, selections, max_read_bytes=...)`
+rechecks every admitted request against a caller-selected absolute file path and
+manifest. `selections` is a tuple of `InventorySelection(request_id, manifest,
+path)`, with exactly one entry per admitted request, at most 192. The trusted
+ledger supplies each pinned manifest root, project, fragment index, length and
+content/transfer binding. All selections and the aggregate logical read budget
+(up to 64 MiB) are checked before any fragment is opened. The full charged amount
+must fit that budget even when some files are absent. Actual reads use the
+existing bounded 32 KiB verifier; the budget is not a total CPU/RSS or physical
+I/O claim. Work is synchronous and sequential; admission SQLite waits retain the
+existing five-second busy bound and are not asynchronously cancellable.
+
+A report identifies each request as `verified`, `missing` or `unverified`.
+Missing includes disappearance of a selected file or parent during inspection;
+unverified includes unsafe file type/path, observable mutation, bad bytes and
+filesystem errors. It is not an automatic repair or deletion decision. Cancellation
+callbacks may raise any exception: they abort the pass rather than being mistaken
+for a missing/corrupt file. No partial report is returned. A changed ledger
+snapshot also rejects the complete report, including changes committed by another
+process during the pass. Corrupt or unreadable ledger state fails closed.
+
+Prior `verified_observation` metadata is never accepted as evidence of current
+bytes. Reconciliation changes no records, revisions, charges or files, including
+stale observations. Callers must use the fresh report for their recovery decision;
+this API does not persist availability or grant a serving capability. Observations
+are made at different times and are not an atomic filesystem snapshot or a
+future retention promise. Reverify before serving or recovery use. Publisher
+approval remains separate. Trusted stable physical directories remain required;
+hostile same-user writers are outside the guarantee.
+
+Unknown/orphan files are not enumerated or charged by this API. Establishing an
+owned retained store, durable path ownership, writer fencing, crash-safe ingestion,
+orphan reconciliation, safe reclaim and bounded repair remains future work. Never
+release charges or execute downloaded bytes because this audit found a file missing.
