@@ -538,10 +538,20 @@ async def transfer_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> Non
             assert server.stdout is not None
             ready = json.loads(await asyncio.wait_for(server.stdout.readline(), 10))
             assert ready["manifest_sha256"] == manifest.digest
-            args = [*client_args, "--port", str(ready["port"])]
-            if resumed:
-                args.append("--resume")
-            code, out, err = await command(*args, cwd=cwd)
+            with socket.socket() as unavailable:
+                unavailable.bind(("127.0.0.1", 0))
+                args = [
+                    *client_args,
+                    "--port",
+                    str(unavailable.getsockname()[1]),
+                    "--alternate",
+                    "127.0.0.1",
+                    str(ready["port"]),
+                    "localhost",
+                ]
+                if resumed:
+                    args.append("--resume")
+                code, out, err = await command(*args, cwd=cwd)
             if resumed:
                 assert code == 0 and not err
                 report = json.loads(out)
@@ -593,7 +603,7 @@ with checkpoint(Path(stage), manifest, resume=True) as directory:
     assert stage.stat().st_mode & 0o777 == 0o700
     assert not list(stage.glob(".aethermesh-content-*"))
     print(
-        "Installed resume acceptance passed: 8 MiB, process restart, crash recovery, exactly 252 missing chunks fetched, private verified output."
+        "Installed resume acceptance passed: 8 MiB, explicit CLI candidate fallback, process restart, crash recovery, exactly 252 missing chunks fetched, private verified output."
     )
 
 

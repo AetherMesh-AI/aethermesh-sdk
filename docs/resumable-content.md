@@ -41,6 +41,32 @@ There are no automatic retries, peer discovery, reconnects or background workers
 A new invocation can explicitly choose an endpoint; content identity must remain
 the same. A completed download is published to a new local filename only.
 
+`fetch-transfer` uses the public `download_transfer` SDK lifecycle. To select
+alternative operator-provided addresses for the same trusted peer, append up to
+seven `--alternate HOST PORT SERVER_NAME` groups, for example:
+
+```sh
+--alternate 127.0.0.1 7444 localhost
+```
+
+The primary address is tried first, followed by alternatives in the supplied
+order. All inherit `--peer-fingerprint` and `--expected-node-id`; no alternative
+can supply new trust. Duplicate endpoints, invalid ports and more than eight
+total candidates fail before connection. The single `--timeout` covers selection,
+transfer and the pre-publication deadline check. Only pre-negotiation transport
+failures allow fallback; identity/project/protocol failures and any manifest or
+chunk failure are terminal. Resume still requires a new explicit invocation.
+
+Success JSON remains unchanged. Local checkpoint/path failures use the existing
+static `invalid_configuration` or `local_io_error` codes. Publication failures
+report `publication_failed`; any SDK error after publication is entered also
+includes `"publication_attempted": true`. This conservatively means complete
+output may exist, even when the CLI exits unsuccessfully. Inspect the selected
+output and expected hash before retrying; an error never permits replacement or
+deletion. Absence of this field does not prove another process created no output.
+No peer or exception text is echoed. Cleanup grace, synchronous disk-I/O limits,
+and the irreversible no-overwrite publication boundary remain unchanged.
+
 ## Canonical manifest and wire operations
 
 `TransferManifest` encodes exactly six fields: `version` (integer 1), `project`,

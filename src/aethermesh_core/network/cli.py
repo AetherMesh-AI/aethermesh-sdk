@@ -18,6 +18,7 @@ from .client import PeerClient
 from .config import PeerEndpoint, TLSIdentity, certificate_fingerprint
 from .content import ContentRef, ContentStore
 from .content_files import publish_new, read_selected, require_absent, selected_parent
+from .download import DownloadError, download_transfer
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
@@ -29,7 +30,6 @@ from .errors import (
 from .profile import NodeProfile, load_node_profile
 from .service import PeerService
 from .transfer import MAX_TRANSFER_BYTES, TransferStore
-from .transfer_files import publish_transfer, resume_download
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -115,6 +115,14 @@ def _parser() -> argparse.ArgumentParser:
     transfer.add_argument("--staging", type=Path, required=True)
     transfer.add_argument("--resume", action="store_true")
     transfer.add_argument("--output", type=Path, required=True)
+    transfer.add_argument(
+        "--alternate",
+        nargs=3,
+        action="append",
+        default=[],
+        metavar=("HOST", "PORT", "SERVER_NAME"),
+        help="explicit alternative address for the same pinned peer (repeat up to seven times)",
+    )
     check = commands.add_parser("check", help="check an explicitly configured peer")
     fetch = commands.add_parser(
         "fetch", help="fetch verified small content to a new file"
@@ -320,21 +328,30 @@ async def _fetch(arguments: argparse.Namespace) -> None:
 
 
 async def _fetch_transfer(arguments: argparse.Namespace) -> None:
-    with selected_parent(arguments.output) as (directory, name):
-        require_absent(directory, name)
-        async with _connected(arguments) as (client, timeout):
-            manifest = await client.fetch_manifest(
-                arguments.manifest_sha256, timeout=timeout
-            )
-            data, fetched = await resume_download(
-                client,
-                manifest,
-                arguments.staging,
-                resume=arguments.resume,
-                timeout=timeout,
-            )
-        # Publication follows successful request completion and connection cleanup.
-        publish_transfer(directory, name, data)
+    identity, primary, timeout = _connection_inputs(arguments)
+    if len(arguments.alternate) > 7:
+        raise ValueError("too many alternative endpoints")
+    alternatives = tuple(
+        PeerEndpoint(
+            host,
+            int(port),
+            server_name,
+            primary.fingerprint,
+            expected_node_id=primary.expected_node_id,
+        )
+        for host, port, server_name in arguments.alternate
+    )
+    result = await download_transfer(
+        identity,
+        (primary, *alternatives) if alternatives else primary,
+        project_id=arguments.project,
+        manifest_sha256=arguments.manifest_sha256,
+        staging=arguments.staging,
+        output=arguments.output,
+        resume=arguments.resume,
+        timeout=timeout,
+    )
+    manifest = result.manifest
     print(
         json.dumps(
             {
@@ -342,7 +359,7 @@ async def _fetch_transfer(arguments: argparse.Namespace) -> None:
                 "sha256": manifest.sha256,
                 "size": manifest.size,
                 "manifest_sha256": manifest.digest,
-                "chunks_fetched": fetched,
+                "chunks_fetched": result.chunks_fetched,
                 "saved": True,
                 "integrity_verified": True,
                 "publisher_authorized": False,
@@ -354,6 +371,14 @@ async def _fetch_transfer(arguments: argparse.Namespace) -> None:
 
 def _failure(error: Exception, *, content: bool = False) -> str:
     # Never include exception strings, supplied paths/arguments or peer text.
+    if isinstance(error, DownloadError):
+        return {
+            "output_exists": "output_exists",
+            "invalid_state": "invalid_configuration",
+            "local_io": "local_io_error",
+            "callback_failed": "callback_failed",
+            "publication_failed": "publication_failed",
+        }[error.code]
     if isinstance(error, FileExistsError):
         return "output_exists"
     if isinstance(error, AuthenticationError):
@@ -421,22 +446,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
         else:
+            report: dict[str, object] = {
+                "error": _failure(
+                    exc,
+                    content=arguments.command
+                    in {"fetch", "fetch-transfer", "bundle-export", "bundle-inspect"},
+                )
+            }
+            if isinstance(exc, DownloadError) and exc.publication_attempted:
+                report["publication_attempted"] = True
             print(
-                json.dumps(
-                    {
-                        "error": _failure(
-                            exc,
-                            content=arguments.command
-                            in {
-                                "fetch",
-                                "fetch-transfer",
-                                "bundle-export",
-                                "bundle-inspect",
-                            },
-                        )
-                    },
-                    sort_keys=True,
-                ),
+                json.dumps(report, sort_keys=True),
                 file=sys.stderr,
             )
         return 1
