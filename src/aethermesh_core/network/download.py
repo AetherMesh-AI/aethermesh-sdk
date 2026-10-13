@@ -74,6 +74,18 @@ class DownloadError(PeerError):
 
 
 @asynccontextmanager
+async def _within_deadline(deadline: float) -> AsyncIterator[None]:
+    budget = asyncio.timeout_at(deadline)
+    try:
+        async with budget:
+            yield
+    except TimeoutError as exc:
+        if budget.expired():
+            raise RequestTimeout("Download exceeded its deadline.") from exc
+        raise
+
+
+@asynccontextmanager
 async def _connected_client(
     identity: TLSIdentity,
     endpoint: PeerEndpoint | tuple[PeerEndpoint, ...],
@@ -85,7 +97,7 @@ async def _connected_client(
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             raise RequestTimeout("Download exceeded its deadline.")
-        async with asyncio.timeout_at(deadline):
+        async with _within_deadline(deadline):
             connection = await connect_peer_candidates(
                 identity,
                 endpoint,
@@ -98,7 +110,7 @@ async def _connected_client(
         client = PeerClient(identity, project_id=project_id, limits=limits)
     try:
         if not isinstance(endpoint, tuple):
-            async with asyncio.timeout_at(deadline):
+            async with _within_deadline(deadline):
                 await client.connect(endpoint)
         yield client
     except BaseException as failure:
@@ -171,48 +183,48 @@ async def download_transfer(
                 raise DownloadError("output_exists") from exc
             # Connection cleanup remains owned by the context manager, even when
             # the total operation timeout expires or a callback fails/cancels.
-            async with _connected_client(
-                identity, endpoint, project_id, deadline, limits
-            ) as client:
-                async with asyncio.timeout_at(deadline):
-                    if asyncio.get_running_loop().time() >= deadline:
-                        raise RequestTimeout("Download exceeded its deadline.")
-                    manifest = await client.fetch_manifest(
-                        manifest_sha256, timeout=timeout
-                    )
-                    await notify(DownloadProgress("manifest", manifest, 0, 0, 0, 0))
+            async with (
+                _connected_client(
+                    identity, endpoint, project_id, deadline, limits
+                ) as client,
+                _within_deadline(deadline),
+            ):
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise RequestTimeout("Download exceeded its deadline.")
+                manifest = await client.fetch_manifest(manifest_sha256, timeout=timeout)
+                await notify(DownloadProgress("manifest", manifest, 0, 0, 0, 0))
 
-                    async def chunk(index: int, fetched: int) -> None:
-                        count = index + 1
-                        await notify(
-                            DownloadProgress(
-                                "chunk",
-                                manifest,
-                                min(count * 32768, manifest.size),
-                                count,
-                                fetched,
-                                count - fetched,
-                            )
-                        )
-
-                    data, fetched = await resume_download(
-                        client,
-                        manifest,
-                        staging,
-                        resume=resume,
-                        timeout=timeout,
-                        on_chunk=chunk,
-                    )
+                async def chunk(index: int, fetched: int) -> None:
+                    count = index + 1
                     await notify(
                         DownloadProgress(
-                            "verified",
+                            "chunk",
                             manifest,
-                            manifest.size,
-                            len(manifest.chunks),
+                            min(count * 32768, manifest.size),
+                            count,
                             fetched,
-                            len(manifest.chunks) - fetched,
+                            count - fetched,
                         )
                     )
+
+                data, fetched = await resume_download(
+                    client,
+                    manifest,
+                    staging,
+                    resume=resume,
+                    timeout=timeout,
+                    on_chunk=chunk,
+                )
+                await notify(
+                    DownloadProgress(
+                        "verified",
+                        manifest,
+                        manifest.size,
+                        len(manifest.chunks),
+                        fetched,
+                        len(manifest.chunks) - fetched,
+                    )
+                )
             result = DownloadResult(
                 manifest, output, fetched, len(manifest.chunks) - fetched
             )
@@ -234,7 +246,7 @@ async def download_transfer(
             raise DownloadError(
                 "publication_failed", publication_attempted=True
             ) from exc
-        raise RequestTimeout("Download exceeded its deadline.") from exc
+        raise DownloadError("local_io") from exc
     except FileExistsError as exc:
         # Checkpoint/temporary creation conflicts are not destination collisions.
         conflict: Literal["publication_failed", "invalid_state"] = (

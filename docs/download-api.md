@@ -74,6 +74,10 @@ the owned session and preserves committed checkpoints; resume always requires a
 new explicit call and rehashes cached bytes. Ordinary cleanup failures cannot
 replace a primary protocol/authentication failure or cancellation. The existing
 bounded cleanup grace and synchronous publication limitations still apply.
+Only expiry of an owned deadline timer becomes a shared-deadline `RequestTimeout`.
+An unrelated local/cleanup `TimeoutError` is `DownloadError(code="local_io")`
+before publication; publication-time failures retain `publication_failed` and
+the conservative `publication_attempted=True` flag.
 
 Candidate selection grants no publisher authority, trust enrollment or permission
 to execute received bytes. Installed acceptance uses ephemeral loopback peers,

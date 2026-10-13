@@ -202,3 +202,39 @@ class CandidateDownloadTests(unittest.IsolatedAsyncioTestCase):
             connect.assert_not_awaited()
         with self.assertRaises(TypeError):
             await self.fetch(limits="invalid")
+
+    async def test_cleanup_timeout_is_not_shared_deadline_expiry(self):
+        original = PeerClient.close
+        failure = TimeoutError("cleanup before deadline")
+
+        async def failed_close(client):
+            await original(client)
+            raise failure
+
+        with (
+            patch.object(PeerClient, "close", failed_close),
+            self.assertRaises(DownloadError) as caught,
+        ):
+            await self.fetch(timeout=30)
+        self.assertEqual(caught.exception.code, "local_io")
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertFalse(caught.exception.publication_attempted)
+        self.assertFalse(self.args["output"].exists())
+        result = await self.fetch(resume=True)
+        self.assertEqual((result.chunks_fetched, result.chunks_reused), (0, 3))
+        self.assertEqual(result.output.read_bytes(), self.blob)
+
+    async def test_nonbudget_selection_timeout_is_not_relabeled(self):
+        from aethermesh_core.network import download
+
+        failure = TimeoutError("local selection failure")
+        with (
+            patch.object(
+                download, "connect_peer_candidates", AsyncMock(side_effect=failure)
+            ),
+            self.assertRaises(DownloadError) as caught,
+        ):
+            await self.fetch(timeout=30)
+        self.assertEqual(caught.exception.code, "local_io")
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertFalse(caught.exception.publication_attempted)
