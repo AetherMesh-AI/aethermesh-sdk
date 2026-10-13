@@ -693,6 +693,10 @@ async def bundle_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
             str(received),
             "--sha256",
             exported["sha256"],
+            "--expected-ref",
+            exported["ref"],
+            "--expected-oid",
+            exported["claimed_oid"],
             cwd=cwd,
         )
         assert code == 0 and not err and json.loads(out) == exported
@@ -700,7 +704,7 @@ async def bundle_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) -> None:
     finally:
         await stop(server)
     print(
-        "Installed bundle acceptance passed: pinned owned export, peer transfer, bounded header claims; no pack ingestion."
+        "Installed bundle acceptance passed: pinned owned export, peer transfer, selected branch/OID header claims; no pack ingestion."
     )
 
 

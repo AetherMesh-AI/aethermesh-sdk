@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from .config import validate_fingerprint, validate_project_id
 from .transfer import MAX_TRANSFER_BYTES
@@ -63,10 +63,22 @@ class BundleInfo:
         }
 
 
-def inspect_bundle(data: bytes, *, project_id: str, expected_sha256: str) -> BundleInfo:
+def inspect_bundle(
+    data: bytes,
+    *,
+    project_id: str,
+    expected_sha256: str,
+    expected_ref: str | None = None,
+    expected_oid: str | None = None,
+) -> BundleInfo:
     """Parse only a bounded v2 header; opaque PACK bytes remain unvalidated."""
     validate_project_id(project_id)
     validate_fingerprint(expected_sha256)
+    if (expected_ref is None) != (expected_oid is None):
+        raise ValueError("select both expected branch and commit claims")
+    if expected_ref is not None:
+        validate_branch(expected_ref)
+        validate_oid(cast(str, expected_oid))
     if not isinstance(data, bytes) or len(data) > MAX_TRANSFER_BYTES:
         raise ValueError("bundle exceeds the 8-MiB bound")
     if hashlib.sha256(data).hexdigest() != expected_sha256:
@@ -83,4 +95,6 @@ def inspect_bundle(data: bytes, *, project_id: str, expected_sha256: str) -> Bun
         raise ValueError("invalid bundle reference line") from exc
     validate_oid(oid)
     validate_branch(ref)
+    if expected_ref is not None and (ref != expected_ref or oid != expected_oid):
+        raise ValueError("bundle header does not match selected revision claims")
     return BundleInfo(project_id, expected_sha256, len(data), ref, oid)
