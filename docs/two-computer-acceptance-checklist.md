@@ -27,6 +27,52 @@ are not supplied. Windows transfer targets are not currently validated.
 
 ## Run and capture
 
+### Offline fixture and worksheet preparation
+
+The repository's `scripts/prepare_peer_acceptance.py` generates only local public
+bytes and a blank evidence worksheet. It does not connect, listen, create/load
+credentials, enroll trust or install anything. Run it using an existing approved
+environment containing the SDK, against a new directory in a trusted, stable
+physical parent (for example `/private/tmp` rather than its `/tmp` symlink on
+macOS). No existing directory is reused:
+
+```sh
+APPROVED_PYTHON /physical/path/to/reviewed/sdk/scripts/prepare_peer_acceptance.py \
+  --project acceptance-fixture --output /physical/owned/parent/new-acceptance-kit
+```
+
+The package contains exactly three files:
+
+- `fixture.bin`: 8 MiB of public synthetic data, 256 distinct 32-KiB chunks;
+  chunk N consists of byte value N repeated 32,768 times. It is not code, a
+  repository, a model or a user-data snapshot.
+- `manifest.json`: the canonical SDK transfer manifest for the selected project.
+  Its digest differs from the whole-file digest. Independently verify/share the
+  expected digests before a real run; the generator's output grants no trust.
+- `evidence.json`: fixture facts, empty required inputs, a proposed bounded plan,
+  and per-step observations initialized to `not_run`. Actual timestamps, exit
+  codes and reports stay empty until observed. Proposed timeout/budget/count
+  values are not approvals or measured evidence.
+
+The directory is created with mode 0700 and files with mode 0600. Existing paths
+are never overwritten. I/O failure can leave a partial directory; inspect it and
+choose a new output directory rather than assuming rollback. No disk durability
+or hostile same-user filesystem isolation is promised. Generated binaries and
+machine-specific evidence belong outside the repository and active app checkouts.
+
+The clean interruption plan stops after three verified chunks, then expects 253
+missing chunks on a new explicit resume **only if exactly those three checkpoints
+remain valid**. Record actual counts rather than copying the plan. The existing
+installed crash-recovery fixture has an additional recovered chunk and expects
+252; these are different scenarios. Do not run the installed smoke suite as this
+offline preparation step: that suite creates ephemeral identities and listeners.
+
+Keep a pristine worksheet and fill a separate operator-owned evidence copy when
+the required inputs and permissions are ready. The JSON is a human worksheet,
+not a signed receipt, proof of distinct machines or automated acceptance verdict.
+
+### Approved real-machine steps
+
 Use the exact command templates in the [runbook](two-peer-operations.md), replacing
 placeholders only from the completed input record. Do not execute placeholders.
 Choose a finite manual attempt count before starting. Record UTC start/end,
