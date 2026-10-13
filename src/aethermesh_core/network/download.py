@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .candidates import _validate, connect_peer_candidates
 from .client import PeerClient
-from .config import PeerEndpoint, TLSIdentity, validate_fingerprint, validate_project_id
+from .config import (
+    Limits,
+    PeerEndpoint,
+    TLSIdentity,
+    validate_fingerprint,
+    validate_project_id,
+)
 from .content_files import _DestinationExistsError, require_absent, selected_parent
 from .errors import PeerError, RequestTimeout
 from .transfer import TransferManifest
@@ -65,9 +73,47 @@ class DownloadError(PeerError):
         self.publication_attempted = publication_attempted
 
 
+@asynccontextmanager
+async def _connected_client(
+    identity: TLSIdentity,
+    endpoint: PeerEndpoint | tuple[PeerEndpoint, ...],
+    project_id: str,
+    deadline: float,
+    limits: Limits | None,
+) -> AsyncIterator[PeerClient]:
+    if isinstance(endpoint, tuple):
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise RequestTimeout("Download exceeded its deadline.")
+        async with asyncio.timeout_at(deadline):
+            connection = await connect_peer_candidates(
+                identity,
+                endpoint,
+                project_id=project_id,
+                timeout=remaining,
+                limits=limits,
+            )
+        client = connection.client
+    else:
+        client = PeerClient(identity, project_id=project_id, limits=limits)
+    try:
+        if not isinstance(endpoint, tuple):
+            async with asyncio.timeout_at(deadline):
+                await client.connect(endpoint)
+        yield client
+    except BaseException as failure:
+        try:
+            await client.close()
+        except Exception as cleanup:
+            raise failure from cleanup
+        raise
+    else:
+        await client.close()
+
+
 async def download_transfer(
     identity: TLSIdentity,
-    endpoint: PeerEndpoint,
+    endpoint: PeerEndpoint | tuple[PeerEndpoint, ...],
     *,
     project_id: str,
     manifest_sha256: str,
@@ -76,6 +122,7 @@ async def download_transfer(
     resume: bool = False,
     timeout: float = 30.0,
     on_progress: Callable[[DownloadProgress], Awaitable[None]] | None = None,
+    limits: Limits | None = None,
 ) -> DownloadResult:
     """Own one session, private checkpoints and no-overwrite output publication.
 
@@ -98,6 +145,12 @@ async def download_transfer(
         or (on_progress is not None and not callable(on_progress))
     ):
         raise ValueError("invalid download configuration")
+    _validate(
+        identity,
+        endpoint if isinstance(endpoint, tuple) else (endpoint,),
+        timeout,
+        limits,
+    )
     deadline = asyncio.get_running_loop().time() + timeout
 
     async def notify(progress: DownloadProgress) -> None:
@@ -118,9 +171,12 @@ async def download_transfer(
                 raise DownloadError("output_exists") from exc
             # Connection cleanup remains owned by the context manager, even when
             # the total operation timeout expires or a callback fails/cancels.
-            async with PeerClient(identity, project_id=project_id) as client:
+            async with _connected_client(
+                identity, endpoint, project_id, deadline, limits
+            ) as client:
                 async with asyncio.timeout_at(deadline):
-                    await client.connect(endpoint)
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise RequestTimeout("Download exceeded its deadline.")
                     manifest = await client.fetch_manifest(
                         manifest_sha256, timeout=timeout
                     )

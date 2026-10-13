@@ -241,7 +241,9 @@ class DownloadBackpressureTests(unittest.IsolatedAsyncioTestCase):
             owned = []
 
             def client_factory(*args, **kwargs):
-                client = PeerClient(*args, **kwargs, limits=Limits(max_inflight=64))
+                client = PeerClient(
+                    *args, **(kwargs | {"limits": Limits(max_inflight=64)})
+                )
                 owned.append(client)
                 return client
 

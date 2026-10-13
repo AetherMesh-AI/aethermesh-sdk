@@ -338,6 +338,52 @@ async def download_api_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) ->
                 assert connected.attempted_count == 2 and connected.endpoint == endpoint
                 await connected.client.request("status", {}, timeout=2)
             assert not connected.client.connected
+            candidate_stage = cwd / "candidate-stage"
+            candidate_output = cwd / "candidate-output"
+
+            async def interrupt_candidate(progress: DownloadProgress) -> None:
+                if progress.chunks_fetched == 2:
+                    raise asyncio.CancelledError()
+
+            try:
+                await download_transfer(
+                    pki.client.identity(),
+                    (candidate, endpoint),
+                    project_id="api-download",
+                    manifest_sha256=manifest.digest,
+                    staging=candidate_stage,
+                    output=candidate_output,
+                    limits=Limits(handshake_timeout=0.5),
+                    on_progress=interrupt_candidate,
+                )
+            except asyncio.CancelledError:
+                pass
+            else:
+                raise AssertionError("expected candidate download cancellation")
+            assert not candidate_output.exists()
+            (candidate_stage / "001.chunk").write_bytes(b"corrupt checkpoint")
+            candidate_result = await download_transfer(
+                pki.client.identity(),
+                (candidate, endpoint),
+                project_id="api-download",
+                manifest_sha256=manifest.digest,
+                staging=candidate_stage,
+                output=candidate_output,
+                limits=Limits(handshake_timeout=0.5),
+                resume=True,
+            )
+            assert (
+                candidate_result.chunks_reused,
+                candidate_result.chunks_fetched,
+            ) == (
+                1,
+                255,
+            )
+            assert candidate_output.read_bytes() == blob
+            assert not candidate_result.publisher_authorized
+        print(
+            "Installed candidate download passed: fallback, cancellation, corrupt-checkpoint rehash and explicit resume."
+        )
         print(
             "Installed explicit peer candidate fallback passed; no discovery or application replay."
         )

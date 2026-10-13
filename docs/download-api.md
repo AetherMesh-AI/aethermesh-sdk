@@ -50,6 +50,36 @@ and manifest digest. It rehashes cached chunks and fetches missing/corrupt ones.
 An absent output path is required; success never replaces an existing file. No
 private helper imports or application-owned chunk persistence are necessary.
 
+### Explicit alternative addresses for the same trusted peer
+
+The `endpoint` argument also accepts a tuple of one to eight distinct
+`PeerEndpoint` values. These must all pin the same certificate fingerprint and
+expected node ID, following [explicit peer candidates](peer-candidates.md).
+Optional typed `limits=Limits(handshake_timeout=...)` can bound each connection
+attempt more narrowly. Existing single-endpoint calls remain supported.
+
+```python
+result = await download_transfer(
+    existing_identity, (primary_endpoint, alternate_endpoint),
+    project_id="selected-project", manifest_sha256=selected_manifest_sha256,
+    staging=checkpoint_path, output=new_output_path, timeout=30.0,
+)
+```
+
+One absolute download deadline covers candidate selection, transfer and callbacks;
+selection time is deducted before transfer begins. Alternatives are tried only
+for pre-negotiation transport failures. Once negotiation succeeds, manifest or
+chunk failures never trigger another candidate or replay. Cancellation closes
+the owned session and preserves committed checkpoints; resume always requires a
+new explicit call and rehashes cached bytes. Ordinary cleanup failures cannot
+replace a primary protocol/authentication failure or cancellation. The existing
+bounded cleanup grace and synchronous publication limitations still apply.
+
+Candidate selection grants no publisher authority, trust enrollment or permission
+to execute received bytes. Installed acceptance uses ephemeral loopback peers,
+an unavailable address, cancellation and a corrupt checkpoint followed by explicit
+resume; it does not establish Internet or two-machine reachability.
+
 ## Progress and completion facts
 
 `DownloadProgress` and `DownloadResult` are frozen dataclasses. Their `manifest`
