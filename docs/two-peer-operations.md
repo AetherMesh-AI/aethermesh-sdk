@@ -6,6 +6,10 @@ Current acceptance uses isolated installed packages, separate processes and
 loopback TLS. No discovery, NAT traversal, relay or automatic reconnect exists.
 Keep GitHub available and keep received bundles opaque.
 
+Use the [operator checklist](two-computer-acceptance-checklist.md) to collect the
+smallest input set and record actual results. Its blank status is not acceptance
+evidence or permission to deploy.
+
 ## Inputs and permissions before a real run
 
 Record the following without putting private keys in tickets or chat:
