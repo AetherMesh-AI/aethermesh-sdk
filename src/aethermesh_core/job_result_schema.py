@@ -374,13 +374,24 @@ def _artifact_reference_list(value: object, context: str) -> None:
             _content_addressed_id(reference, f"{context} entries")
         elif (
             reference.startswith(("/", "~"))
-            or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", reference) is not None
+            or _starts_with_uri_scheme(reference)
             or "\\" in reference
             or any(part == ".." for part in reference.split("/"))
         ):
             raise JobResultSchemaError(
                 f"{context} entries must be relative local paths or content-addressed IDs"
             )
+
+
+def _starts_with_uri_scheme(value: str) -> bool:
+    scheme, separator, _remainder = value.partition(":")
+    return bool(
+        separator
+        and scheme
+        and scheme.isascii()
+        and scheme[0].isalpha()
+        and all(character.isalnum() or character in "+.-" for character in scheme)
+    )
 
 
 def _immutable_local_manifest_ref(value: object) -> None:
