@@ -21,6 +21,14 @@ class RequestTimeout(PeerError):
     """A connection or operation exceeded its configured deadline."""
 
 
+class EndpointUnavailable(ConnectionClosed):
+    """Transport could not be established; no protocol negotiation was started."""
+
+
+class EndpointTimeout(RequestTimeout):
+    """Transport establishment timed out before protocol negotiation started."""
+
+
 class RemoteError(PeerError):
     """An authenticated peer rejected a request with a stable error code."""
 

@@ -320,6 +320,28 @@ async def download_api_smoke(peer: str, pki: Any, pins: list[str], cwd: Path) ->
         assert server.stdout is not None
         ready = json.loads(await asyncio.wait_for(server.stdout.readline(), 10))
         endpoint = PeerEndpoint("127.0.0.1", ready["port"], "localhost", pins[0])
+        from aethermesh_core.network import Limits, connect_peer_candidates
+
+        with socket.socket() as unavailable:
+            unavailable.bind(("127.0.0.1", 0))
+            candidate = PeerEndpoint(
+                "127.0.0.1", unavailable.getsockname()[1], "localhost", pins[0]
+            )
+            connected = await connect_peer_candidates(
+                pki.client.identity(),
+                (candidate, endpoint),
+                project_id="api-download",
+                timeout=5,
+                limits=Limits(handshake_timeout=0.5),
+            )
+            async with connected:
+                assert connected.attempted_count == 2 and connected.endpoint == endpoint
+                await connected.client.request("status", {}, timeout=2)
+            assert not connected.client.connected
+        print(
+            "Installed explicit peer candidate fallback passed; no discovery or application replay."
+        )
+
         staging, output = cwd / "api-stage", cwd / "api-output"
 
         # End one installed SDK process after cooperative cancellation, then

@@ -33,6 +33,10 @@ versions are separate namespaces. This protocol prefers version `2`, with a
 version `1` fallback for diagnostic peers without node-profile support. Connecting
 to a project does not adopt that project's release channel or publisher authority.
 
+For an explicit bounded list of alternative addresses for the same trusted peer,
+see [the candidate-connection API](peer-candidates.md). It adds no discovery or
+relay service and never retries negotiation failures or application operations.
+
 ## Configure identities and trust explicitly
 
 Each side needs an operator-provided PEM certificate, corresponding unencrypted

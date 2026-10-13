@@ -20,6 +20,8 @@ from .content import CONTENT_OPERATION, ContentRef, validate_content_result
 from .errors import (
     AuthenticationError,
     ConnectionClosed,
+    EndpointTimeout,
+    EndpointUnavailable,
     PeerError,
     ProtocolError,
     RemoteError,
@@ -124,46 +126,57 @@ class PeerClient:
             await self._close_session()
             writer: asyncio.StreamWriter | None = None
             try:
-                async with asyncio.timeout(self._limits.handshake_timeout):
-                    reader, writer = await asyncio.open_connection(
-                        endpoint.host,
-                        endpoint.port,
-                        ssl=self._identity.client_context(),
-                        server_hostname=endpoint.server_name,
-                        ssl_handshake_timeout=self._limits.handshake_timeout,
-                        ssl_shutdown_timeout=1.0,
-                    )
-                    if peer_fingerprint(writer) != endpoint.fingerprint:
-                        raise AuthenticationError(
-                            "The peer certificate pin did not match."
+                try:
+                    async with asyncio.timeout(self._limits.handshake_timeout):
+                        reader, writer = await asyncio.open_connection(
+                            endpoint.host,
+                            endpoint.port,
+                            ssl=self._identity.client_context(),
+                            server_hostname=endpoint.server_name,
+                            ssl_handshake_timeout=self._limits.handshake_timeout,
+                            ssl_shutdown_timeout=1.0,
                         )
-                    await write_frame(
-                        writer,
-                        {
-                            "type": "hello",
-                            "versions": list(SUPPORTED_PROTOCOL_VERSIONS),
-                            "project": self._project,
-                        },
-                    )
-                    welcome = await read_frame(reader)
-                    capabilities = self._welcome(welcome)
-                    info = self._peer(welcome, endpoint)
-                    await self._announce_identity(reader, writer, info.protocol_version)
-                self._writer = writer
-                self._capabilities = capabilities
-                self._peer_info = info
-                self._next_id = 1
-                self._receiver = asyncio.create_task(self._receive(reader, writer))
-                writer = None
-            except ssl.SSLError as exc:
-                raise AuthenticationError("Peer TLS authentication failed.") from exc
-            except TimeoutError as exc:
-                raise RequestTimeout("Peer connection timed out.") from exc
-            except (OSError, asyncio.IncompleteReadError) as exc:
-                raise ConnectionClosed("Could not establish the peer session.") from exc
-            finally:
+                        if peer_fingerprint(writer) != endpoint.fingerprint:
+                            raise AuthenticationError(
+                                "The peer certificate pin did not match."
+                            )
+                        await write_frame(
+                            writer,
+                            {
+                                "type": "hello",
+                                "versions": list(SUPPORTED_PROTOCOL_VERSIONS),
+                                "project": self._project,
+                            },
+                        )
+                        welcome = await read_frame(reader)
+                        capabilities = self._welcome(welcome)
+                        info = self._peer(welcome, endpoint)
+                        await self._announce_identity(
+                            reader, writer, info.protocol_version
+                        )
+                    self._writer = writer
+                    self._capabilities = capabilities
+                    self._peer_info = info
+                    self._next_id = 1
+                    self._receiver = asyncio.create_task(self._receive(reader, writer))
+                    writer = None
+                except ssl.SSLError as exc:
+                    raise AuthenticationError(
+                        "Peer TLS authentication failed."
+                    ) from exc
+                except TimeoutError as exc:
+                    failure = EndpointTimeout if writer is None else RequestTimeout
+                    raise failure("Peer connection timed out.") from exc
+                except (OSError, asyncio.IncompleteReadError) as exc:
+                    closed = EndpointUnavailable if writer is None else ConnectionClosed
+                    raise closed("Could not establish the peer session.") from exc
+            except BaseException as failure:
                 if writer is not None:
-                    await close_writer(writer)
+                    try:
+                        await close_writer(writer)
+                    except Exception as cleanup:
+                        raise failure from cleanup
+                raise
 
     async def _announce_identity(
         self,
@@ -488,11 +501,13 @@ class PeerClient:
         self._capabilities = ()
         self._peer_info = None
         self._fail_pending(ConnectionClosed("The peer session was closed."))
-        if receiver is not None:
-            receiver.cancel()
-            await asyncio.gather(receiver, return_exceptions=True)
-        if writer is not None:
-            await close_writer(writer)
+        try:
+            if receiver is not None:
+                receiver.cancel()
+                await asyncio.gather(receiver, return_exceptions=True)
+        finally:
+            if writer is not None:
+                await close_writer(writer)
 
     async def close(self) -> None:
         """Cancel pending work, close the socket and await owned resources."""
