@@ -60,6 +60,21 @@ aethermesh-peer bundle-inspect --project aethermesh-sdk \
   --file received.bundle --sha256 EXPECTED_BUNDLE_SHA256
 ```
 
+To require the header to advertise the separately selected branch and commit,
+also provide `--expected-ref refs/heads/SELECTED_BRANCH --expected-oid FULL_OID`.
+The SDK `inspect_bundle` accepts the equivalent optional `expected_ref` and
+`expected_oid` keyword arguments. Both must be supplied together, pass the same
+conservative branch/OID validation as export, and exactly match the header.
+A mismatch fails with no success output; the file remains untouched. Omitting
+both preserves inspection-only behavior and the existing output schema.
+
+Matching these fields checks **claims only**. Even an invalid opaque pack can
+advertise the selected values. Success does not prove the advertised commit is
+present, validate object contents or history, authorize a publisher, establish
+freshness/rollback policy, or permit checkout/execution. Select the expected
+digest, ref and OID through an independent trusted process, not from the received
+header itself. `pack_validated` and `publisher_authorized` remain false.
+
 Inspection performs no Git invocation, decompression, object parsing or ingestion.
 It reads at most 8 MiB, verifies the explicitly selected SHA-256, and parses a
 header limited to 16 KiB. Only a bundle-v2 header advertising one conservative

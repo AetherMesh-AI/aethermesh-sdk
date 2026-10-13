@@ -20,6 +20,75 @@ from tests.bundle_test_support import create_repository, fixture_git
 
 
 class HeaderTests(unittest.TestCase):
+    def test_selected_revision_claims_are_optional_paired_and_not_pack_validation(self):
+        oid, ref = "a" * 40, "refs/heads/main"
+        data = f"# v2 git bundle\n{oid} {ref}\n\nPACKnot a real pack".encode()
+        kwargs = {
+            "project_id": "p",
+            "expected_sha256": hashlib.sha256(data).hexdigest(),
+        }
+        with patch("subprocess.run", side_effect=AssertionError("no Git ingestion")):
+            selected = inspect_bundle(
+                data, **kwargs, expected_ref=ref, expected_oid=oid
+            )
+            self.assertEqual(selected, inspect_bundle(data, **kwargs))
+            self.assertFalse(selected.to_dict()["pack_validated"])
+            self.assertFalse(selected.to_dict()["publisher_authorized"])
+            for expected in (
+                {"expected_ref": ref},
+                {"expected_oid": oid},
+                {"expected_ref": "HEAD", "expected_oid": oid},
+                {"expected_ref": ref, "expected_oid": "0" * 40},
+                {"expected_ref": "refs/heads/other", "expected_oid": oid},
+                {"expected_ref": ref, "expected_oid": "b" * 40},
+            ):
+                with self.subTest(expected=expected), self.assertRaises(ValueError):
+                    inspect_bundle(data, **kwargs, **expected)
+
+    def test_cli_selected_claims_fail_closed_without_echoing_peer_claims(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp).resolve() / "selected.bundle"
+            oid, ref = "a" * 40, "refs/heads/main"
+            data = f"# v2 git bundle\n{oid} {ref}\n\nPACKopaque".encode()
+            path.write_bytes(data)
+            args = [
+                "bundle-inspect",
+                "--project",
+                "p",
+                "--file",
+                str(path),
+                "--sha256",
+                hashlib.sha256(data).hexdigest(),
+            ]
+            for extra, success in (
+                (["--expected-ref", ref, "--expected-oid", oid], True),
+                (["--expected-ref", ref], False),
+                (["--expected-oid", oid], False),
+                (
+                    [
+                        "--expected-ref",
+                        "refs/heads/private-claim",
+                        "--expected-oid",
+                        oid,
+                    ],
+                    False,
+                ),
+                (["--expected-ref", ref, "--expected-oid", "b" * 40], False),
+            ):
+                out, err = io.StringIO(), io.StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    self.assertEqual(cli.main(args + extra), 0 if success else 1)
+                if success:
+                    self.assertFalse(err.getvalue())
+                    self.assertFalse(json.loads(out.getvalue())["pack_validated"])
+                    self.assertFalse(json.loads(out.getvalue())["publisher_authorized"])
+                else:
+                    self.assertFalse(out.getvalue())
+                    self.assertEqual(
+                        json.loads(err.getvalue()), {"error": "invalid_configuration"}
+                    )
+                self.assertEqual(path.read_bytes(), data)
+
     def test_opaque_payload_claims_and_rejected_headers(self):
         oid = "a" * 40
         valid = (

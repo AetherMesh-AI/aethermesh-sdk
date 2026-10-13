@@ -51,6 +51,8 @@ def _parser() -> argparse.ArgumentParser:
     bundle_inspect.add_argument("--project", required=True)
     bundle_inspect.add_argument("--file", required=True, type=Path)
     bundle_inspect.add_argument("--sha256", required=True)
+    bundle_inspect.add_argument("--expected-ref")
+    bundle_inspect.add_argument("--expected-oid")
     bundle_export = commands.add_parser(
         "bundle-export", help="export one trusted local branch pinned to an OID"
     )
@@ -425,6 +427,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 read_selected(arguments.file, limit=MAX_TRANSFER_BYTES),
                 project_id=arguments.project,
                 expected_sha256=arguments.sha256,
+                expected_ref=arguments.expected_ref,
+                expected_oid=arguments.expected_oid,
             )
             print(json.dumps(info.to_dict(), sort_keys=True))
         else:
